@@ -16,6 +16,8 @@ class 麻雀牌:
         self.何者: str = 何者
         self.その上の数字: int = その上の数字
         self.牌の状態: list[str] = [] # 例: ["四風牌"]
+        if not self.検証():
+            raise ValueError(f"不正な牌: {何者}, {その上の数字}")
 
     def 検証(self) -> bool:
         """
