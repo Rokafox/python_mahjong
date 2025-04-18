@@ -44,7 +44,7 @@ class 麻雀牌:
         中ちゃん->その上の数字が0
         """
         if self.何者 in ["東風", "南風", "西風", "北風"]:
-            self.固有状態.extend(["四風牌", "字牌"])
+            self.固有状態.extend(["四風牌", "字牌", "么九牌"])
             return self.その上の数字 == 0
         elif self.何者 in ["筒子", "萬子", "索子"]:
             self.固有状態.extend(["数牌"])
@@ -56,7 +56,7 @@ class 麻雀牌:
                 self.固有状態.extend(["中張牌"])
             return 1 <= self.その上の数字 <= 9
         elif self.何者 in ["白ちゃん", "發ちゃん", "中ちゃん"]:
-            self.固有状態.extend(["三元牌", "字牌"])
+            self.固有状態.extend(["三元牌", "字牌", "么九牌"])
             return self.その上の数字 == 0
         else:
             return False
@@ -139,7 +139,6 @@ def 山を作成する() -> list[麻雀牌]:
 
 def 四面子一雀頭ですか(tiles: list[麻雀牌]) -> bool:
     """
-    この関数の仕組みはまだ厳密に検証されていない、でも機能しているようだ。
     """
     def _can_make_sets(c: dict[tuple[str, int], int]) -> bool:
         # まだ残っている最小の牌を探す
@@ -186,6 +185,118 @@ def 四面子一雀頭ですか(tiles: list[麻雀牌]) -> bool:
             if _can_make_sets(c):
                 return True
     return False
+
+
+def 混全帯么九ですか(tiles: list[麻雀牌]) -> bool:
+    """
+    """
+    if len(tiles) != 14:
+        return False
+
+    counter = Counter((t.何者, t.その上の数字) for t in tiles)
+
+    def _can_make_sets_chanta(c: dict[tuple[str, int], int]) -> bool:
+        for key, cnt in c.items():
+            if cnt:
+                suit, num = key
+                break
+        else:
+            return True
+
+        if cnt >= 3:
+            if (suit not in ("萬子", "筒子", "索子")) or num in (1, 9):
+                c[key] -= 3
+                if _can_make_sets_chanta(c):
+                    return True
+                c[key] += 3
+
+        if suit in ("萬子", "筒子", "索子") and num in (1, 7):
+            k1, k2 = (suit, num + 1), (suit, num + 2)
+            if c.get(k1, 0) and c.get(k2, 0):
+                c[key]  -= 1
+                c[k1]   -= 1
+                c[k2]   -= 1
+                if _can_make_sets_chanta(c):
+                    return True
+                c[key]  += 1
+                c[k1]   += 1
+                c[k2]   += 1
+
+        return False
+
+    for key, cnt in list(counter.items()):
+        if cnt >= 2:
+            suit, num = key
+            if (suit not in ("萬子", "筒子", "索子")) or num in (1, 9):
+                c = deepcopy(counter)
+                c[key] -= 2
+                print(c)
+                if _can_make_sets_chanta(c):
+                    return True
+    return False
+
+
+def 純全帯么九ですか(tiles: list[麻雀牌]) -> bool:
+    """
+    """
+    if len(tiles) != 14:
+        return False
+
+    counter = Counter((t.何者, t.その上の数字) for t in tiles)
+
+    def _can_make_sets_pure_chanta(c: dict[tuple[str, int], int]) -> bool:
+        for key, cnt in c.items():
+            if cnt:
+                suit, num = key
+                break
+        else:
+            return True
+
+        if cnt >= 3:
+            if num in (1, 9):
+                c[key] -= 3
+                if _can_make_sets_pure_chanta(c):
+                    return True
+                c[key] += 3
+
+        if suit in ("萬子", "筒子", "索子") and num in (1, 7):
+            k1, k2 = (suit, num + 1), (suit, num + 2)
+            if c.get(k1, 0) and c.get(k2, 0):
+                c[key]  -= 1
+                c[k1]   -= 1
+                c[k2]   -= 1
+                if _can_make_sets_pure_chanta(c):
+                    return True
+                c[key]  += 1
+                c[k1]   += 1
+                c[k2]   += 1
+
+        return False
+
+    for key, cnt in list(counter.items()):
+        if cnt >= 2:
+            suit, num = key
+            if num in (1, 9):
+                c = deepcopy(counter)
+                c[key] -= 2
+                print(c)
+                if _can_make_sets_pure_chanta(c):
+                    return True
+    return False
+
+
+手牌 = [
+    麻雀牌("索子", 8, False), 麻雀牌("索子", 7, False), 麻雀牌("索子", 9, False),  
+    麻雀牌("萬子", 1, False), 麻雀牌("萬子", 1, False), 麻雀牌("萬子", 1, False),  
+    麻雀牌("筒子", 8, False), 麻雀牌("筒子", 7, False), 麻雀牌("筒子", 9, False), 
+    麻雀牌("萬子", 9, False), 麻雀牌("萬子", 9, False), 麻雀牌("萬子", 9, False),  
+    麻雀牌("筒子", 9, False), 麻雀牌("筒子", 9, False)           
+]
+手牌.sort(key=lambda x: (x.sort_order, x.その上の数字))
+for _ in 手牌:
+    print(_)
+
+print(純全帯么九ですか(手牌))   # True
 
 
 def 七対子ですか(tiles: list[麻雀牌]) -> bool:
