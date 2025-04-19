@@ -134,12 +134,66 @@ def 山を作成する() -> list[麻雀牌]:
 
 
 # ==========================
-# 役の判定
+# 補助関数
 # ==========================
+def 面子スコア(tiles: list[麻雀牌]) -> int:
+    """
+    13 枚の手牌から完成面子（順子・刻子）の最大数を求めて
+    0面子→0, 1面子→1, 2面子→2, 3面子→4, 4面子→8を返す。雀頭は数えない。
+    """
+    if len(tiles) != 13:
+        raise ValueError("手牌は 13 枚である必要があります")
+    tiles.sort(key=lambda x: (x.sort_order, x.その上の数字))
+
+    counter = Counter((t.何者, t.その上の数字) for t in tiles)
+    memo: dict[tuple[tuple[tuple[str, int], int], ...], int] = {}
+    数牌 = ("萬子", "筒子", "索子")
+
+    def dfs(c: Counter) -> int:
+        """残りカウンタ c から作れる最大面子数を返す（メモ化付き）"""
+        key = tuple(sorted((k, v) for k, v in c.items() if v))
+        if not key:             # 牌が残っていない
+            return 0
+        if key in memo:         # メモ化
+            return memo[key]
+
+        best = 0
+        # すべての牌を起点に「刻子」「順子」を試す
+        for (suit, num), cnt in list(c.items()):
+            if cnt == 0:
+                continue
+
+            # ── 刻子 ──
+            if cnt >= 3:
+                c[(suit, num)] -= 3
+                best = max(best, 1 + dfs(c))
+                c[(suit, num)] += 3
+
+            # ── 順子 ──
+            if suit in 数牌 and num <= 7:
+                k1, k2 = (suit, num + 1), (suit, num + 2)
+                if c[k1] and c[k2]:
+                    c[(suit, num)] -= 1
+                    c[k1]          -= 1
+                    c[k2]          -= 1
+                    best = max(best, 1 + dfs(c))
+                    c[(suit, num)] += 1
+                    c[k1]          += 1
+                    c[k2]          += 1
+
+        memo[key] = best
+        return best
+
+    melds = dfs(counter)                # 0〜4
+    return [0, 1, 2, 4, 8][melds]
+
 
 def 四面子一雀頭ですか(tiles: list[麻雀牌]) -> bool:
     """
     """
+    if len(tiles) != 14:
+        raise ValueError("手牌は 14 枚である必要があります")
+    tiles.sort(key=lambda x: (x.sort_order, x.その上の数字))
     def _can_make_sets(c: dict[tuple[str, int], int]) -> bool:
         # まだ残っている最小の牌を探す
         for key, cnt in c.items():
@@ -186,12 +240,82 @@ def 四面子一雀頭ですか(tiles: list[麻雀牌]) -> bool:
                 return True
     return False
 
+def 聴牌ですか(tiles: list[麻雀牌],) -> tuple[bool, list[麻雀牌]]:
+    """
+    13 枚の手牌がチャンタ一向聴かどうかを判定し、
+    待ち牌（重複なし）も返す。
 
-def 混全帯么九ですか(tiles: list[麻雀牌]) -> bool:
+    Returns
+    -------
+    bool              : テンパイなら True
+    list[麻雀牌]      : 待ち牌オブジェクトのリスト
     """
-    """
-    if len(tiles) != 14:
+    if len(tiles) != 13:
+        raise ValueError("手牌は 13 枚である必要があります")
+    tiles.sort(key=lambda x: (x.sort_order, x.その上の数字))
+    counter = Counter((t.何者, t.その上の数字) for t in tiles)  # 赤ドラを区別しない
+    待ち牌: list[麻雀牌] = []
+
+    # 全候補を列挙（ここでは赤ドラ無視）
+    全候補: list[tuple[str, int]] = []
+    for suit in ("萬子", "筒子", "索子"):
+        for num in range(1, 10):
+            全候補.append((suit, num))
+    全候補 += [(honor, 0) for honor in
+               ("東風", "南風", "西風", "北風", "白ちゃん", "發ちゃん", "中ちゃん")]
+
+    for 何者, 数字 in 全候補:
+        # 4 枚使い切っている牌はスキップ
+        if counter[(何者, 数字)] >= 4:
+            continue
+
+        仮手牌 = tiles + [麻雀牌(何者, 数字, False)]
+        if 純全帯么九(仮手牌):
+            待ち牌.append(麻雀牌(何者, 数字, False))
+        elif 混全帯么九(仮手牌):
+            待ち牌.append(麻雀牌(何者, 数字, False))
+        elif 混一色(仮手牌):
+            待ち牌.append(麻雀牌(何者, 数字, False))
+        elif 七対子(仮手牌):
+            待ち牌.append(麻雀牌(何者, 数字, False))
+
+    # 重複除去（同種同数の牌が複数回入るのを防ぐ）
+    unique = {(p.何者, p.その上の数字) for p in 待ち牌}
+    待ち牌 = [麻雀牌(s, n, False) for (s, n) in unique]
+
+    return bool(待ち牌), 待ち牌
+
+# ====================================================
+# 無役
+# ====================================================
+
+def 発(tiles: list[麻雀牌]) -> bool:
+    return len([t for t in tiles if t.何者 == "發ちゃん"]) == 3
+
+def 中(tiles: list[麻雀牌]) -> bool:
+    return len([t for t in tiles if t.何者 == "中ちゃん"]) == 3
+
+def 白(tiles: list[麻雀牌]) -> bool:
+    return len([t for t in tiles if t.何者 == "白ちゃん"]) == 3
+
+def 赤ドラの数(tiles: list[麻雀牌]) -> int:
+    return len([t for t in tiles if t.赤ドラ])
+
+def 断么九(tiles: list[麻雀牌]) -> bool:
+    if any("么九牌" in t.固有状態 for t in tiles):
         return False
+    if not 四面子一雀頭ですか(tiles):
+        return False
+    return True
+
+# ====================================================
+# 和了形
+# ====================================================
+
+def 混全帯么九(tiles: list[麻雀牌]) -> bool:
+    """
+    使用できるのは123の順子と789の順子、および一九字牌の対子と刻子である。
+    """
 
     counter = Counter((t.何者, t.その上の数字) for t in tiles)
 
@@ -230,78 +354,57 @@ def 混全帯么九ですか(tiles: list[麻雀牌]) -> bool:
             if (suit not in ("萬子", "筒子", "索子")) or num in (1, 9):
                 c = deepcopy(counter)
                 c[key] -= 2
-                print(c)
                 if _can_make_sets_chanta(c):
                     return True
     return False
 
 
-def 純全帯么九ですか(tiles: list[麻雀牌]) -> bool:
+def 純全帯么九(tiles: list[麻雀牌]) -> bool:
     """
+    1.必ず混全帯么九である
+    2.手牌は字牌を含まない
     """
-    if len(tiles) != 14:
+    if any("字牌" in t.固有状態 for t in tiles):
         return False
+    return 混全帯么九(tiles)
 
-    counter = Counter((t.何者, t.その上の数字) for t in tiles)
 
-    def _can_make_sets_pure_chanta(c: dict[tuple[str, int], int]) -> bool:
-        for key, cnt in c.items():
-            if cnt:
-                suit, num = key
-                break
-        else:
-            return True
-
-        if cnt >= 3:
-            if num in (1, 9):
-                c[key] -= 3
-                if _can_make_sets_pure_chanta(c):
-                    return True
-                c[key] += 3
-
-        if suit in ("萬子", "筒子", "索子") and num in (1, 7):
-            k1, k2 = (suit, num + 1), (suit, num + 2)
-            if c.get(k1, 0) and c.get(k2, 0):
-                c[key]  -= 1
-                c[k1]   -= 1
-                c[k2]   -= 1
-                if _can_make_sets_pure_chanta(c):
-                    return True
-                c[key]  += 1
-                c[k1]   += 1
-                c[k2]   += 1
-
+def 混一色(tiles: list[麻雀牌]) -> bool:
+    """
+    四面子一雀頭の形で、かつ、数牌の種類が 1 種類である。
+    """
+    temp_tiles = [t.何者 for t in tiles if "数牌" in t.固有状態]
+    temp_tiles = list(set(temp_tiles))
+    if len(temp_tiles) != 1:
         return False
-
-    for key, cnt in list(counter.items()):
-        if cnt >= 2:
-            suit, num = key
-            if num in (1, 9):
-                c = deepcopy(counter)
-                c[key] -= 2
-                print(c)
-                if _can_make_sets_pure_chanta(c):
-                    return True
-    return False
-
-
-手牌 = [
-    麻雀牌("索子", 8, False), 麻雀牌("索子", 7, False), 麻雀牌("索子", 9, False),  
-    麻雀牌("萬子", 1, False), 麻雀牌("萬子", 1, False), 麻雀牌("萬子", 1, False),  
-    麻雀牌("筒子", 8, False), 麻雀牌("筒子", 7, False), 麻雀牌("筒子", 9, False), 
-    麻雀牌("萬子", 9, False), 麻雀牌("萬子", 9, False), 麻雀牌("萬子", 9, False),  
-    麻雀牌("筒子", 9, False), 麻雀牌("筒子", 9, False)           
-]
-手牌.sort(key=lambda x: (x.sort_order, x.その上の数字))
-for _ in 手牌:
-    print(_)
-
-print(純全帯么九ですか(手牌))   # True
-
-
-def 七対子ですか(tiles: list[麻雀牌]) -> bool:
-    if len(tiles) != 14:
+    if not 四面子一雀頭ですか(tiles):
         return False
+    return True
+
+
+def 清一色(tiles: list[麻雀牌]) -> bool:
+    """
+    字牌なし混一色
+    """
+    if any("字牌" in t.固有状態 for t in tiles):
+        return False
+    if not 混一色(tiles):
+        return False
+    return True
+
+
+def 混老頭(tiles: list[麻雀牌]) -> bool:
+    """
+    四面子一雀頭かつすべての牌が么九牌である。
+    """
+    if any("么九牌" not in t.固有状態 for t in tiles):
+        return False
+    if not 四面子一雀頭ですか(tiles):
+        return False
+    return True
+
+
+def 七対子(tiles: list[麻雀牌]) -> bool:
     counter = Counter((t.何者, t.その上の数字) for t in tiles)
     # print(counter)
     # Counter({('萬子', 1): 2, ('萬子', 2): 2, ('萬子', 3): 2, ('萬子', 4): 2, ('萬子', 5): 2, ('白ちゃん', 0): 2, ('中ちゃん', 0): 2})
@@ -310,3 +413,75 @@ def 七対子ですか(tiles: list[麻雀牌]) -> bool:
         if cnt != 2 and cnt != 4:
             return False
     return True
+
+
+# 手牌 = [
+#     麻雀牌("索子", 8, False), 麻雀牌("索子", 7, False), 麻雀牌("索子", 9, False),  
+#     麻雀牌("索子", 1, False), 麻雀牌("索子", 1, False), 麻雀牌("索子", 1, False),  
+#     麻雀牌("索子", 8, False), 麻雀牌("索子", 7, False), 麻雀牌("索子", 9, False), 
+#     麻雀牌("索子", 9, False), 麻雀牌("索子", 9, False), 麻雀牌("索子", 9, False),  
+#     麻雀牌("白ちゃん", 0, False),
+#     麻雀牌("白ちゃん", 0, False)           
+# ]
+# print(混全帯么九(手牌))
+# print(純全帯么九(手牌))
+# print(混一色(手牌))
+# print(七対子(手牌))
+# print(面子スコア(手牌))
+# a, b = 聴牌ですか(手牌)
+# print(a)
+# for _ in b:
+#     print(f"聴牌: {len(b)}")
+#     print(_.何者, _.その上の数字)
+
+
+# ==========================
+# 点数計算
+# ==========================
+def 点数計算(tiles: list[麻雀牌]) -> tuple[int, list[str], bool]:
+    if len(tiles) != 14:
+        raise ValueError("手牌は 14 枚である必要があります")
+    tiles.sort(key=lambda x: (x.sort_order, x.その上の数字))
+    score = 0
+    yaku = []
+    tsumo = False
+    if 発(tiles):
+        score += 1000
+        yaku.append("發")
+    if 中(tiles):
+        score += 1000
+        yaku.append("中")
+    if 白(tiles):
+        score += 1000
+        yaku.append("白")
+    if 赤ドラの数(tiles) > 0:
+        score += 1000 * 赤ドラの数(tiles)
+        yaku.append(f"赤ドラ {赤ドラの数(tiles)}")
+    if 断么九(tiles):
+        score += 1000
+        yaku.append("断么九")
+    if 純全帯么九(tiles):
+        score += 6000
+        yaku.append("純全帯么九")
+        tsumo = True
+    if 混全帯么九(tiles) and "純全帯么九" not in yaku:
+        score += 3000
+        yaku.append("混全帯么九")
+        tsumo = True
+    if 清一色(tiles):
+        score += 6000
+        yaku.append("清一色")
+        tsumo = True
+    if 混一色(tiles) and "清一色" not in yaku:
+        score += 3000
+        yaku.append("混一色")
+        tsumo = True
+    if 混老頭(tiles):
+        score += 6000
+        yaku.append("混老頭")
+        tsumo = True
+    if 七対子(tiles):
+        score += 3000
+        yaku.append("七対子")
+        tsumo = True
+    return score, yaku, tsumo
