@@ -13,11 +13,8 @@ from 牌 import 聴牌ですか, 麻雀牌, 山を作成する, 面子スコア,
 # 環境
 # ---------------------------
 class MahjongEnvironment:
-    """強化学習用の簡易麻雀環境 (門前・1 人プレイ)
-    主な修正点:
-      * 状態ベクトル: 0〜4 枚を one‑hot 5bit で表現 (情報欠落を解消)
-      * 無効アクションに大きな罰則 (‑10) / 有効アクションは小罰 (‑1)
-      * 報酬スケールを数十以内に統整、和了 +100
+    """
+    強化学習用の簡易麻雀環境 (門前・1 人プレイ)
     """
 
     N_TILE_TYPES = 34               # 萬・筒・索 (9*3) + 字牌 7
@@ -163,17 +160,17 @@ class MahjongEnvironment:
             # for p in 何の牌:
             #     print(f"{p.何者} {p.その上の数字}")
             reward += len(何の牌) * 50
-                    # 五門ボーナス
-            if any("四風牌" in t.固有状態 for t in self.手牌):
-                reward += 40
-            if any("三元牌" in t.固有状態 for t in self.手牌):
-                reward += 40
-            if any("筒子" in t.何者 for t in self.手牌):
-                reward += 40
-            if any("萬子" in t.何者 for t in self.手牌):
-                reward += 40
-            if any("索子" in t.何者 for t in self.手牌):
-                reward += 40
+            # 五門ボーナス
+            # if any("四風牌" in t.固有状態 for t in self.手牌):
+            #     reward += 40
+            # if any("三元牌" in t.固有状態 for t in self.手牌):
+            #     reward += 40
+            # if any("筒子" in t.何者 for t in self.手牌):
+            #     reward += 40
+            # if any("萬子" in t.何者 for t in self.手牌):
+            #     reward += 40
+            # if any("索子" in t.何者 for t in self.手牌):
+            #     reward += 40
 
 
         done = not self.山
@@ -207,11 +204,6 @@ class MahjongEnvironment:
 # DQN
 # ---------------------------
 class DQNAgent:
-    """主要修正:
-      * ε 減衰を **エピソード終了時のみ** 行う
-      * リプレイバッファ 5 万
-      * target Q 更新を N ステップ周期
-    """
 
     TARGET_UPDATE_EVERY = 2000  # ステップ
 
@@ -344,7 +336,7 @@ def train_agent(episodes: int = 5000, pretrained: str | None = None, device: str
             ep_reward += reward
             if done:
                 agent.decay_epsilon()
-                with open("training_logv1_2.csv", "a") as f:
+                with open("training_logv2_0.csv", "a") as f:
                     if ep == 0:  # Write header only once
                         f.write("Episode,Score,Turn,Epsilon,Reward,Penalty456,Complete,MZScore, HandComplete\n")
                     f.write(f"{ep+1},{info['score']},{info['turn']},{agent.epsilon:.3f},{ep_reward},{info['penalty_456']},{' '.join(str(x) for x in info['complete'])},{info['mz_score']}, {' '.join(info['hand_when_complete'])}\n")
@@ -354,7 +346,5 @@ def train_agent(episodes: int = 5000, pretrained: str | None = None, device: str
 
 
 if __name__ == "__main__":
-    trained_agent = train_agent(pretrained="七対五門.pth")
-    torch.save(trained_agent.model.state_dict(), "七対五門.pth")
-
-# I have trained an agent, how to use it for analyze?
+    trained_agent = train_agent(pretrained="model.pth")
+    torch.save(trained_agent.model.state_dict(), "model.pth")

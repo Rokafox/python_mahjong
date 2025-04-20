@@ -522,7 +522,7 @@ def 点数計算(tiles: list[麻雀牌]) -> tuple[int, list[str], bool]:
     tiles.sort(key=lambda x: (x.sort_order, x.その上の数字))
     score = 0
     yaku = []
-    tsumo = False
+    win = False
     chanta = False
     clearwater = False
 
@@ -544,12 +544,12 @@ def 点数計算(tiles: list[麻雀牌]) -> tuple[int, list[str], bool]:
     if 純全帯么九(tiles):
         score += 6000
         yaku.append("純全帯么九")
-        tsumo = True
+        win = True
         chanta = True
     if 混全帯么九(tiles) and not chanta:
         score += 3000
         yaku.append("混全帯么九")
-        tsumo = True
+        win = True
 
     if 四面子一雀頭ですか(tiles):
         if 断么九(tiles):
@@ -558,67 +558,67 @@ def 点数計算(tiles: list[麻雀牌]) -> tuple[int, list[str], bool]:
         if 五門斉(tiles):
             score += 3000
             yaku.append("五門斉")
-            tsumo = True
+            win = True
         if 清一色(tiles):
             score += 6000
             yaku.append("清一色")
-            tsumo = True
+            win = True
             clearwater = True
         if 混一色(tiles) and not clearwater:
             score += 3000
             yaku.append("混一色")
-            tsumo = True
+            win = True
         if 混老頭(tiles):
             score += 6000
             yaku.append("混老頭")
-            tsumo = True
+            win = True
         if 三色同順(tiles):
             score += 3000
             yaku.append("三色同順")
-            tsumo = True
+            win = True
         if 一気通貫(tiles):
             score += 3000
             yaku.append("一気通貫")
-            tsumo = True
+            win = True
         if 小三元(tiles):
             score += 6000
             yaku.append("小三元")
-            tsumo = True
+            win = True
         if 大三元(tiles):
             score += 32000
             yaku.append("大三元")
-            tsumo = True
+            win = True
         if 清老頭(tiles):
             score += 32000
             yaku.append("清老頭")
-            tsumo = True
+            win = True
         if 字一色(tiles):
             score += 32000
             yaku.append("字一色")
-            tsumo = True
+            win = True
     elif 七対子(tiles):
         score += 3000
         yaku.append("七対子")
-        tsumo = True
+        win = True
         if 五門斉(tiles):
             score += 3000
             yaku.append("五門斉")
-            tsumo = True
+            win = True
         if 混一色(tiles) and not clearwater:
             score += 3000
             yaku.append("混一色")
-            tsumo = True
+            win = True
         if 混老頭(tiles):
             score += 6000
             yaku.append("混老頭")
-            tsumo = True
+            win = True
         if 清老頭(tiles):
             score += 32000
             yaku.append("清老頭")
-            tsumo = True
+            win = True
         if 字一色(tiles):
             score += 32000
             yaku.append("字一色")
-            tsumo = True
+            win = True
 
-    return score, yaku, tsumo
+    return score, yaku, win
