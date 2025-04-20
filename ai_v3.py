@@ -17,16 +17,15 @@ class MahjongEnvironment:
     強化学習用の麻雀環境 (4人プレイ)
     """
 
-    N_TILE_TYPES = 34               # 萬・筒・索 (9*3) + 字牌 7
+    # N_TILE_TYPES = 34 * 2           # 捨て + ぽん
+    N_TILE_TYPES = 34
     STATE_BITS = 5                  # 0,1,2,3,4 枚の one‑hot
     N_PLAYERS = 4                   # プレイヤー数
 
     def __init__(self):
         self.reset()
 
-    # --------------------------------------------------
-    # ゲーム管理
-    # --------------------------------------------------
+
     def reset(self):
         # Initialize the wall (山)
         self.山 = 山を作成する()
@@ -42,6 +41,7 @@ class MahjongEnvironment:
         
         # Initialize discard piles for all players
         self.捨て牌 = [[] for _ in range(self.N_PLAYERS)]
+        self.副露 = [[] for _ in range(self.N_PLAYERS)]
         
         # Current player index (0 is the agent)
         self.current_player = 0
@@ -56,21 +56,16 @@ class MahjongEnvironment:
         
         return self._get_state()
 
-    # --------------------------------------------------
-    # 状態表現
-    # --------------------------------------------------
+
     def _get_state(self) -> np.ndarray:
-        # Base state: agent's hand (same as before)
         state = np.zeros(self.N_TILE_TYPES * self.STATE_BITS + 
                          self.N_TILE_TYPES * self.N_PLAYERS, dtype=np.float32)
         
-        # Encode the agent's hand
         counter = Counter(self._tile_to_index(t) for t in self.手牌)
         for idx in range(self.N_TILE_TYPES):
             cnt = counter.get(idx, 0)
             state[idx * self.STATE_BITS + cnt] = 1.0  # 0〜4
             
-        # Encode all players' discard piles
         discard_offset = self.N_TILE_TYPES * self.STATE_BITS
         for player_idx in range(self.N_PLAYERS):
             for tile in self.捨て牌[player_idx]:
@@ -79,9 +74,7 @@ class MahjongEnvironment:
         
         return state
 
-    # --------------------------------------------------
-    # タイル ⇔ インデックス
-    # --------------------------------------------------
+
     def _tile_to_index(self, tile):
         """Convert tile to unique index"""
         if tile.何者 == "萬子":
@@ -129,17 +122,22 @@ class MahjongEnvironment:
             return ("中ちゃん", 0)
 
 
-    # --------------------------------------------------
-    # 有効アクション
-    # --------------------------------------------------
     def get_valid_actions(self) -> list[int]:
-        """いま打てる牌（重複を除いたインデックス）のリストを返す"""
-        return sorted({self._tile_to_index(t) for t in self.手牌})
+        valid = set()
+        # （1）捨て可能な牌
+        valid.update({self._tile_to_index(t) for t in self.手牌})
+
+        # （2）ぽん可能な牌
+        last_disc = self.捨て牌[(self.current_player - 1) % self.N_PLAYERS]
+        if last_disc:
+            tile = last_disc[-1]
+            count = sum(1 for t in self.全手牌[0] if (t.何者, t.その上の数字) == (tile.何者, tile.その上の数字))
+            if count >= 2:
+                idx = self._tile_to_index(tile)
+                valid.add(idx + self.N_TILE_TYPES)  # ぽんアクション
+        return sorted(valid)
 
 
-    # --------------------------------------------------
-    # step
-    # --------------------------------------------------
     def step(self, action: int):
         reward = 0
         
@@ -156,14 +154,32 @@ class MahjongEnvironment:
         for _ in range(self.N_PLAYERS):
             player_idx = self.current_player
             player_hand = self.全手牌[player_idx]
+
+            print(f"Player {player_idx}:")
+            print(f"手牌: {len(player_hand)} 副露: {len([tile for meld in self.副露[player_idx] for tile in meld['tiles']])}")
             
-            # ① ツモ (draw)
-            drawn_tile = self.山.pop(0)
-            player_hand.append(drawn_tile)
+            len_of_hand_and_exposed = len(player_hand) + len([tile for meld in self.副露[player_idx] for tile in meld['tiles']])
+
+            # ①  draw&ツモ
+            if len_of_hand_and_exposed > 14:
+                raise ValueError("手牌が14枚を超えました。")
+            elif len_of_hand_and_exposed == 14:
+                pass
+            elif len_of_hand_and_exposed == 13:
+                drawn_tile = self.山.pop(0)
+                player_hand.append(drawn_tile)
+            else:
+                raise ValueError("手牌が13枚未満です。")
             
             # Check for win (only for agent)
             if player_idx == 0:
-                a, b, c = 点数計算(player_hand)  # return 点数, 役リスト, 和了形?
+                # Create a copy of the hand for scoring
+                win_check_hand = player_hand.copy()
+                # Add tiles from exposed sets if any
+                if self.副露[player_idx]:
+                    win_check_hand.extend([tile for meld in self.副露[player_idx] for tile in meld['tiles']])
+                
+                a, b, c = 点数計算(win_check_hand)  # return 点数, 役リスト, 和了形?
                 if c:
                     print(f"ツモ！{b}")
                     self.complete = b
@@ -174,7 +190,7 @@ class MahjongEnvironment:
                     reward += int((75 * remaining_turns) * 0.6)
                     self.mz_score = 16
                     self.score += reward 
-                    self.hand_when_complete = [str(t) for t in player_hand]
+                    self.hand_when_complete = [str(t) for t in win_check_hand]
                     return self._get_state(), reward, done, {
                         "score": self.score, 
                         "turn": self.turn,
@@ -186,7 +202,9 @@ class MahjongEnvironment:
             
             # ② 打牌 (discard)
             if player_idx == 0:  # Agent's turn - use the provided action
-                # Apply penalties
+                print(f"Player 0 hand: {[str(t) for t in self.手牌]}")
+                print(f"Valid actions: {self.get_valid_actions()}")
+                print(f"Chosen action: {action}")
                 reward -= 2 # アクションの基本罰則
                 
                 # Find and discard the tile
@@ -208,13 +226,29 @@ class MahjongEnvironment:
             # ③ ロン (ron) check for all other players
             for ron_player_idx in range(self.N_PLAYERS):
                 if ron_player_idx != player_idx:  # Check all players except the current one
-                    ron_hand = self.全手牌[ron_player_idx].copy()
+                    # Create a proper hand for ron check
+                    ron_check_hand = self.全手牌[ron_player_idx].copy()
                     
-                    # Add the discarded tile to check if it completes a winning hand
-                    ron_hand.append(discarded_tile)
+                    # Add the discarded tile
+                    ron_check_hand.append(discarded_tile)
+                    
+                    # For checking winning condition, we need to prepare a complete hand
+                    # that includes tiles from exposed sets
+                    winning_hand = ron_check_hand.copy()
+                    
+                    # Add all tiles from exposed sets (for winning calculation)
+                    if self.副露[ron_player_idx]:
+                        print(f"ロンチェック: {ron_player_idx}の手牌 (副露あり)")
+                        # We add exposed tiles only for winning calculation
+                        exposed_tiles = [tile for meld in self.副露[ron_player_idx] for tile in meld['tiles']]
+                        winning_hand.extend(exposed_tiles)
+                    else:
+                        print(f"ロンチェック: {ron_player_idx}の手牌")
+                    
+                    print(f"手牌の枚数: {len(winning_hand)}")
                     
                     # Check if this creates a winning hand
-                    点数, 役リスト, winning = 点数計算(ron_hand)
+                    点数, 役リスト, winning = 点数計算(winning_hand)
                     
                     if winning:
                         # Handle ron for the agent
@@ -228,7 +262,7 @@ class MahjongEnvironment:
                             reward += int((75 * remaining_turns) * 0.5)  # Slightly less bonus for ron
                             self.mz_score = 16
                             self.score += reward
-                            self.hand_when_complete = [str(t) for t in ron_hand]
+                            self.hand_when_complete = [str(t) for t in winning_hand]
                             return self._get_state(), reward, done, {
                                 "score": self.score, 
                                 "turn": self.turn,
@@ -252,6 +286,7 @@ class MahjongEnvironment:
                                 "hand_when_complete": self.hand_when_complete
                             }
 
+            pon_performed = False
             # ④ ぽん (pon) check for all other players
             for pon_player_idx in range(self.N_PLAYERS):
                 if pon_player_idx != player_idx:  # Check all players except the current one
@@ -266,9 +301,17 @@ class MahjongEnvironment:
                     if len(matching_tiles) >= 2:
                         # If the player is the agent, let them decide
                         if pon_player_idx == 0:
-                            # Determine if the agent should pon (this could be a separate method or policy)
-                            should_pon = False
-                            
+                            tile_idx = self._tile_to_index(discarded_tile)
+                            pon_action = tile_idx + self.N_TILE_TYPES
+                            valid = self.get_valid_actions()
+                            if pon_action in valid:
+                               chosen = self.agent.act(
+                                   self._get_state(), valid
+                                )
+                               should_pon = (chosen == pon_action)
+                            else:
+                                should_pon = False
+
                             if should_pon:
                                 print(f"Agent calls ぽん!")
                                 # Remove 2 matching tiles from hand
@@ -279,11 +322,7 @@ class MahjongEnvironment:
                                             pon_hand.pop(i)
                                             break
                                 
-                                # Add the discarded tile and the 2 matching tiles to a new meld list
-                                if not hasattr(self, 'melds'):
-                                    self.melds = [[] for _ in range(self.N_PLAYERS)]
-                                
-                                self.melds[pon_player_idx].append({
+                                self.副露[pon_player_idx].append({
                                     'type': 'pon',
                                     'tiles': matching_tiles[:2] + [discarded_tile],
                                     'from_player': player_idx
@@ -297,10 +336,8 @@ class MahjongEnvironment:
                                 self.current_player = pon_player_idx
                                 break
                         else:
-                            # For non-agent players, use a simple probability to decide
-                            if random.random() < 0.7:  # 70% chance to call pon
+                            if random.random() < 0.4: 
                                 print(f"Player {pon_player_idx} calls ぽん!")
-                                # Remove 2 matching tiles from hand
                                 for _ in range(2):
                                     for i, t in enumerate(pon_hand):
                                         if (t.何者 == discarded_tile.何者 and 
@@ -308,28 +345,20 @@ class MahjongEnvironment:
                                             pon_hand.pop(i)
                                             break
                                 
-                                # Add the discarded tile and the 2 matching tiles to a new meld list
-                                if not hasattr(self, 'melds'):
-                                    self.melds = [[] for _ in range(self.N_PLAYERS)]
-                                
-                                self.melds[pon_player_idx].append({
+                                self.副露[pon_player_idx].append({
                                     'type': 'pon',
                                     'tiles': matching_tiles[:2] + [discarded_tile],
                                     'from_player': player_idx
                                 })
                                 
-                                # Set flag to indicate pon was performed
                                 pon_performed = True
                                 
-                                # After pon, play continues from the player who called pon
                                 self.current_player = pon_player_idx
                                 break
             
-            # If pon was performed, skip to the next iteration
             if pon_performed:
                 continue
 
-            # For agent only: check for tenpai
             if player_idx == 0:
                 聴牌, 何の牌 = 聴牌ですか(player_hand)
                 if 聴牌:
@@ -343,15 +372,12 @@ class MahjongEnvironment:
                 self.mz_score = 面子スコア(self.手牌)
                 reward += self.mz_score * 8
 
-            # Move to next player
             self.current_player = (self.current_player + 1) % self.N_PLAYERS
             
-            # End of round for agent
             if player_idx == 0:
                 self.score += reward
                 self.turn += 1
             
-            # Check if game is over due to empty wall
             if not self.山:
                 done = True
                 return self._get_state(), reward, done, {
@@ -363,7 +389,6 @@ class MahjongEnvironment:
                     "hand_when_complete": self.hand_when_complete
                 }
                 
-        # Continue game
         return self._get_state(), reward, False, {
             "score": self.score, 
             "turn": self.turn,
@@ -385,8 +410,6 @@ class DQNAgent:
         self.state_size = state_size
         self.action_size = action_size
         self.device = torch.device(device)
-
-        # バッファ拡大
         self.memory = deque(maxlen=50_000)
         self.gamma = 0.99
         self.epsilon = 1.0
@@ -421,10 +444,10 @@ class DQNAgent:
 
         state_t = torch.from_numpy(state).float().unsqueeze(0).to(self.device)
         with torch.no_grad():
-            q_vals = self.model(state_t)[0]          # shape: (34,)
-            q_valid = q_vals[valid_actions]          # マスク
+            q_vals = self.model(state_t)[0]
+            q_valid = q_vals[valid_actions]
             best_idx = q_valid.argmax().item()
-            return valid_actions[best_idx]           # 元のタイル番号を返す
+            return valid_actions[best_idx]
 
     # --------------------------------------------------
     # 学習
@@ -433,20 +456,11 @@ class DQNAgent:
         self.memory.append(transition)
 
     def _valid_mask_from_state(self, state_batch: torch.Tensor) -> torch.Tensor:
-        """
-        state_batch: (B, state_size) where state_size includes hand + discard piles
-        return      : (B, 34)   True = 打てる（枚数>0）
-        """
         B = state_batch.size(0)
-        
-        # Extract only the part of the state representing the agent's hand
-        # Original state format: (B, 34*5 + 34*N_PLAYERS)
-        hand_part = state_batch[:, :34*5]  # Only use the first 34*5 elements (agent's hand)
-        
-        # Reshape to (B, 34, 5) and find the argmax to get tile counts
+        hand_part = state_batch[:, :34*5]
         counts = hand_part.view(B, 34, 5).argmax(dim=2)
         
-        return counts > 0  # True if 枚数>0
+        return counts > 0
 
     def replay(self, batch_size: int = 64):
         if len(self.memory) < batch_size:
@@ -464,10 +478,10 @@ class DQNAgent:
 
         # y = r + γ max_a' Q_target(s',a')
         with torch.no_grad():
-            q_next = self.target_model(next_states)           # (B, 34)
+            q_next = self.target_model(next_states)
             valid_mask = self._valid_mask_from_state(next_states)
-            q_next[~valid_mask] = -1e9                       # 無効を強制的に低スコア化
-            q_next_max = q_next.max(1, keepdim=True)[0]      # (B, 1)
+            q_next[~valid_mask] = -1e9                       
+            q_next_max = q_next.max(1, keepdim=True)[0]      
             y = rewards + self.gamma * q_next_max * (1 - dones)
 
         loss = self.criterion(q_sa, y)
@@ -476,7 +490,6 @@ class DQNAgent:
         nn.utils.clip_grad_norm_(self.model.parameters(), 5.0)
         self.optimizer.step()
 
-        # target Q 更新
         self._step_count += 1
         if self._step_count % self.TARGET_UPDATE_EVERY == 0:
             self.update_target_model()
@@ -496,7 +509,6 @@ class DQNAgent:
 def train_agent(episodes: int = 5000, pretrained: str | None = None, device: str = "cuda") -> DQNAgent:
     env = MahjongEnvironment()
     
-    # Calculate the new state size considering the discard piles
     state_size = env.N_TILE_TYPES * env.STATE_BITS + env.N_TILE_TYPES * env.N_PLAYERS
     
     agent = DQNAgent(state_size, env.N_TILE_TYPES, device=device)
@@ -514,7 +526,6 @@ def train_agent(episodes: int = 5000, pretrained: str | None = None, device: str
         done = False
         
         while not done:
-            # Only act when it's the agent's turn
             if env.current_player == 0:
                 valid = env.get_valid_actions()
                 action = agent.act(state, valid)

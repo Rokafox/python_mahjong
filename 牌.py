@@ -518,7 +518,7 @@ def 大三元(tiles: list[麻雀牌]) -> bool:
 # ==========================
 def 点数計算(tiles: list[麻雀牌]) -> tuple[int, list[str], bool]:
     if len(tiles) != 14:
-        raise ValueError("手牌は 14 枚である必要があります")
+        raise ValueError(f"手牌は 14 枚である必要があります: 今{len(tiles)}枚。")
     tiles.sort(key=lambda x: (x.sort_order, x.その上の数字))
     score = 0
     yaku = []

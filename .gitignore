@@ -174,3 +174,4 @@ cython_debug/
 .pypirc
 
 src/mahjong/test.txt
+no_name.py
