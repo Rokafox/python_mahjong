@@ -140,18 +140,19 @@ class MahjongEnvironment:
 
     def step(self, action: int):
         reward = 0
+        done = False
         
-        # Validate action (only for the agent)
+        # Process only the agent's turn if it's the agent's turn
         if self.current_player == 0:  # Agent's turn
+            # Validate the action
+            assert action != -1, "Agent cannot use dummy action"
             assert any((t_idx := self._tile_to_index(t)) == action for t in self.手牌), \
                 "手牌に無い牌が指定されました"
-        
-        # Check if game is over
-        if not self.山:
-            return self._get_state(), -10, True, {}
+                
+            # Check if game is over due to no more tiles
+            # if not self.山:
+            #     return self._get_state(), -10, True, {}
 
-        # Process all players' turns
-        for _ in range(self.N_PLAYERS):
             player_idx = self.current_player
             player_hand = self.全手牌[player_idx]
 
@@ -166,59 +167,55 @@ class MahjongEnvironment:
             elif len_of_hand_and_exposed == 14:
                 pass
             elif len_of_hand_and_exposed == 13:
+                # if not self.山:
+                #     return self._get_state(), -10, True, {}
                 drawn_tile = self.山.pop(0)
                 player_hand.append(drawn_tile)
             else:
                 raise ValueError("手牌が13枚未満です。")
             
             # Check for win (only for agent)
-            if player_idx == 0:
-                # Create a copy of the hand for scoring
-                win_check_hand = player_hand.copy()
-                # Add tiles from exposed sets if any
-                if self.副露[player_idx]:
-                    win_check_hand.extend([tile for meld in self.副露[player_idx] for tile in meld['tiles']])
-                
-                a, b, c = 点数計算(win_check_hand)  # return 点数, 役リスト, 和了形?
-                if c:
-                    print(f"ツモ！{b}")
-                    self.complete = b
-                    reward += int(a * 2)
-                    done = True
-                    remaining_turns = 126 - self.turn
-                    assert remaining_turns >= 0
-                    reward += int((75 * remaining_turns) * 0.6)
-                    self.mz_score = 16
-                    self.score += reward 
-                    self.hand_when_complete = [str(t) for t in win_check_hand]
-                    return self._get_state(), reward, done, {
-                        "score": self.score, 
-                        "turn": self.turn,
-                        "penalty_456": self.penalty_456,
-                        "complete": self.complete,
-                        "mz_score": self.mz_score,
-                        "hand_when_complete": self.hand_when_complete
-                    }
+            # Create a copy of the hand for scoring
+            win_check_hand = player_hand.copy()
+            # Add tiles from exposed sets if any
+            if self.副露[player_idx]:
+                win_check_hand.extend([tile for meld in self.副露[player_idx] for tile in meld['tiles']])
+            
+            a, b, c = 点数計算(win_check_hand)  # return 点数, 役リスト, 和了形?
+            if c:
+                print(f"ツモ！{b}")
+                self.complete = b
+                reward += int(a * 2)
+                done = True
+                remaining_turns = 126 - self.turn
+                assert remaining_turns >= 0
+                reward += int((75 * remaining_turns) * 0.6)
+                self.mz_score = 16
+                self.score += reward 
+                self.hand_when_complete = [str(t) for t in win_check_hand]
+                return self._get_state(), reward, done, {
+                    "score": self.score, 
+                    "turn": self.turn,
+                    "penalty_456": self.penalty_456,
+                    "complete": self.complete,
+                    "mz_score": self.mz_score,
+                    "hand_when_complete": self.hand_when_complete
+                }
             
             # ② 打牌 (discard)
-            if player_idx == 0:  # Agent's turn - use the provided action
-                print(f"Player 0 hand: {[str(t) for t in self.手牌]}")
-                print(f"Valid actions: {self.get_valid_actions()}")
-                print(f"Chosen action: {action}")
-                reward -= 2 # アクションの基本罰則
-                
-                # Find and discard the tile
-                tile_type = self._index_to_tile_type(action)
-                for i, t in enumerate(player_hand):
-                    if (t.何者, t.その上の数字) == tile_type:
-                        discarded_tile = player_hand.pop(i)
-                        break
-                else:
-                    raise ValueError(f"Invalid action: {action} (tile not in hand)")
+            print(f"Player 0 hand: {[str(t) for t in self.手牌]}")
+            print(f"Valid actions: {self.get_valid_actions()}")
+            print(f"Chosen action: {action}")
+            reward -= 2  # アクションの基本罰則
+            
+            # Find and discard the tile
+            tile_type = self._index_to_tile_type(action)
+            for i, t in enumerate(player_hand):
+                if (t.何者, t.その上の数字) == tile_type:
+                    discarded_tile = player_hand.pop(i)
+                    break
             else:
-                # Non-agent players: discard random tile
-                discard_idx = random.randrange(len(player_hand))
-                discarded_tile = player_hand.pop(discard_idx)
+                raise ValueError(f"Invalid action: {action} (tile not in hand)")
             
             # Add to discard pile
             self.捨て牌[player_idx].append(discarded_tile)
@@ -251,40 +248,19 @@ class MahjongEnvironment:
                     点数, 役リスト, winning = 点数計算(winning_hand)
                     
                     if winning:
-                        # Handle ron for the agent
-                        if ron_player_idx == 0:
-                            print(f"ロン！{役リスト}")
-                            self.complete = 役リスト
-                            reward += int(点数 * 1.5)  # Typical ron is worth less than tsumo in this implementation
-                            done = True
-                            remaining_turns = 126 - self.turn
-                            assert remaining_turns >= 0
-                            reward += int((75 * remaining_turns) * 0.5)  # Slightly less bonus for ron
-                            self.mz_score = 16
-                            self.score += reward
-                            self.hand_when_complete = [str(t) for t in winning_hand]
-                            return self._get_state(), reward, done, {
-                                "score": self.score, 
-                                "turn": self.turn,
-                                "penalty_456": self.penalty_456,
-                                "complete": self.complete,
-                                "mz_score": self.mz_score,
-                                "hand_when_complete": self.hand_when_complete
-                            }
-                        else:
-                            # Non-agent player wins with ron
-                            print(f"The other player win.")
-                            done = True
-                            reward -= 200  # Penalty for agent when another player wins
-                            self.score += reward
-                            return self._get_state(), reward, done, {
-                                "score": self.score, 
-                                "turn": self.turn,
-                                "penalty_456": self.penalty_456,
-                                "complete": self.complete,
-                                "mz_score": self.mz_score,
-                                "hand_when_complete": self.hand_when_complete
-                            }
+                        # Non-agent player wins with ron
+                        print(f"The other player win.")
+                        done = True
+                        reward -= 200  # Penalty for agent when another player wins
+                        self.score += reward
+                        return self._get_state(), reward, done, {
+                            "score": self.score, 
+                            "turn": self.turn,
+                            "penalty_456": self.penalty_456,
+                            "complete": self.complete,
+                            "mz_score": self.mz_score,
+                            "hand_when_complete": self.hand_when_complete
+                        }
 
             pon_performed = False
             # ④ ぽん (pon) check for all other players
@@ -299,67 +275,29 @@ class MahjongEnvironment:
                     
                     # Player needs at least 2 matching tiles to pon
                     if len(matching_tiles) >= 2:
-                        # If the player is the agent, let them decide
-                        if pon_player_idx == 0:
-                            tile_idx = self._tile_to_index(discarded_tile)
-                            pon_action = tile_idx + self.N_TILE_TYPES
-                            valid = self.get_valid_actions()
-                            if pon_action in valid:
-                               chosen = self.agent.act(
-                                   self._get_state(), valid
-                                )
-                               should_pon = (chosen == pon_action)
-                            else:
-                                should_pon = False
-
-                            if should_pon:
-                                print(f"Agent calls ぽん!")
-                                # Remove 2 matching tiles from hand
-                                for _ in range(2):
-                                    for i, t in enumerate(pon_hand):
-                                        if (t.何者 == discarded_tile.何者 and 
-                                            t.その上の数字 == discarded_tile.その上の数字):
-                                            pon_hand.pop(i)
-                                            break
-                                
-                                self.副露[pon_player_idx].append({
-                                    'type': 'pon',
-                                    'tiles': matching_tiles[:2] + [discarded_tile],
-                                    'from_player': player_idx
-                                })
-                                
-                                # Set flag to indicate pon was performed
-                                pon_performed = True
-                                reward += 50  # Small reward for successfully calling pon
-                                
-                                # After pon, play continues from the player who called pon
-                                self.current_player = pon_player_idx
-                                break
-                        else:
-                            if random.random() < 0.4: 
-                                print(f"Player {pon_player_idx} calls ぽん!")
-                                for _ in range(2):
-                                    for i, t in enumerate(pon_hand):
-                                        if (t.何者 == discarded_tile.何者 and 
-                                            t.その上の数字 == discarded_tile.その上の数字):
-                                            pon_hand.pop(i)
-                                            break
-                                
-                                self.副露[pon_player_idx].append({
-                                    'type': 'pon',
-                                    'tiles': matching_tiles[:2] + [discarded_tile],
-                                    'from_player': player_idx
-                                })
-                                
-                                pon_performed = True
-                                
-                                self.current_player = pon_player_idx
-                                break
+                        # Non-agent player pon logic
+                        if random.random() < 0.4: 
+                            print(f"Player {pon_player_idx} calls ぽん!")
+                            for _ in range(2):
+                                for i, t in enumerate(pon_hand):
+                                    if (t.何者 == discarded_tile.何者 and 
+                                        t.その上の数字 == discarded_tile.その上の数字):
+                                        pon_hand.pop(i)
+                                        break
+                            
+                            self.副露[pon_player_idx].append({
+                                'type': 'pon',
+                                'tiles': matching_tiles[:2] + [discarded_tile],
+                                'from_player': player_idx
+                            })
+                            
+                            pon_performed = True
+                            
+                            # We don't change self.current_player here since we're only simulating
+                            # the other players' turns separately
+                            break
             
-            if pon_performed:
-                continue
-
-            if player_idx == 0:
+            if not pon_performed:
                 聴牌, 何の牌 = 聴牌ですか(player_hand)
                 if 聴牌:
                     print(f"聴牌:")
@@ -368,16 +306,18 @@ class MahjongEnvironment:
                     reward += 500
                     reward += len(何の牌) * 50
             
-                # 面子スコア calculation remains the same
+                # 面子スコア calculation
                 self.mz_score = 面子スコア(self.手牌)
                 reward += self.mz_score * 8
 
+            # Move to next player in the game
             self.current_player = (self.current_player + 1) % self.N_PLAYERS
             
-            if player_idx == 0:
-                self.score += reward
-                self.turn += 1
+            # Update scores and turn counter
+            self.score += reward
+            self.turn += 1
             
+            # Check if game is over due to no more tiles
             if not self.山:
                 done = True
                 return self._get_state(), reward, done, {
@@ -388,8 +328,188 @@ class MahjongEnvironment:
                     "mz_score": self.mz_score,
                     "hand_when_complete": self.hand_when_complete
                 }
+                    
+        else:
+            # Non-agent turns: process all non-agent players until it's the agent's turn again
+            # done = False
+            while self.current_player != 0 and not done:
+                player_idx = self.current_player
+                player_hand = self.全手牌[player_idx]
+
+                print(f"Player {player_idx}:")
+                print(f"手牌: {len(player_hand)} 副露: {len([tile for meld in self.副露[player_idx] for tile in meld['tiles']])}")
                 
-        return self._get_state(), reward, False, {
+                len_of_hand_and_exposed = len(player_hand) + len([tile for meld in self.副露[player_idx] for tile in meld['tiles']])
+
+                # ① draw&ツモ
+                if len_of_hand_and_exposed > 14:
+                    raise ValueError("手牌が14枚を超えました。")
+                elif len_of_hand_and_exposed == 14:
+                    pass
+                elif len_of_hand_and_exposed == 13:
+                    drawn_tile = self.山.pop(0)
+                    player_hand.append(drawn_tile)
+                else:
+                    raise ValueError("手牌が13枚未満です。")
+                
+                # ② 打牌 (discard) - Non-agent players discard random tile
+                discard_idx = random.randrange(len(player_hand))
+                discarded_tile = player_hand.pop(discard_idx)
+                
+                # Add to discard pile
+                self.捨て牌[player_idx].append(discarded_tile)
+                
+                # ③ ロン (ron) check for all other players including the agent
+                for ron_player_idx in range(self.N_PLAYERS):
+                    if ron_player_idx != player_idx:  # Check all players except the current one
+                        # Create a proper hand for ron check
+                        ron_check_hand = self.全手牌[ron_player_idx].copy()
+                        
+                        # Add the discarded tile
+                        ron_check_hand.append(discarded_tile)
+                        
+                        # For checking winning condition, we need to prepare a complete hand
+                        # that includes tiles from exposed sets
+                        winning_hand = ron_check_hand.copy()
+                        
+                        # Add all tiles from exposed sets (for winning calculation)
+                        if self.副露[ron_player_idx]:
+                            print(f"ロンチェック: {ron_player_idx}の手牌 (副露あり)")
+                            # We add exposed tiles only for winning calculation
+                            exposed_tiles = [tile for meld in self.副露[ron_player_idx] for tile in meld['tiles']]
+                            winning_hand.extend(exposed_tiles)
+                        else:
+                            print(f"ロンチェック: {ron_player_idx}の手牌")
+                        
+                        print(f"手牌の枚数: {len(winning_hand)}")
+                        
+                        # Check if this creates a winning hand
+                        点数, 役リスト, winning = 点数計算(winning_hand)
+                        
+                        if winning:
+                            # Handle ron for the agent
+                            if ron_player_idx == 0:
+                                print(f"ロン！{役リスト}")
+                                self.complete = 役リスト
+                                reward += int(点数 * 1.5)  # Typical ron is worth less than tsumo in this implementation
+                                done = True
+                                remaining_turns = 126 - self.turn
+                                assert remaining_turns >= 0
+                                reward += int((75 * remaining_turns) * 0.5)  # Slightly less bonus for ron
+                                self.mz_score = 16
+                                self.score += reward
+                                self.hand_when_complete = [str(t) for t in winning_hand]
+                                
+                                # Set current player to agent so training loop knows agent should play next
+                                self.current_player = 0
+                                
+                                return self._get_state(), reward, done, {
+                                    "score": self.score, 
+                                    "turn": self.turn,
+                                    "penalty_456": self.penalty_456,
+                                    "complete": self.complete,
+                                    "mz_score": self.mz_score,
+                                    "hand_when_complete": self.hand_when_complete
+                                }
+                            else:
+                                # Non-agent player wins with ron against another non-agent
+                                print(f"Non-agent player {ron_player_idx} wins with ron.")
+                                done = True
+                                # No impact on agent's reward as this is non-agent vs non-agent
+                                # Just end the game
+                                return self._get_state(), 0, done, {
+                                    "score": self.score, 
+                                    "turn": self.turn,
+                                    "penalty_456": self.penalty_456,
+                                    "complete": self.complete,
+                                    "mz_score": self.mz_score,
+                                    "hand_when_complete": self.hand_when_complete
+                                }
+
+                pon_performed = False
+                # ④ ぽん (pon) check for all other players
+                for pon_player_idx in range(self.N_PLAYERS):
+                    if pon_player_idx != player_idx:  # Check all players except the current one
+                        pon_hand = self.全手牌[pon_player_idx]
+                        
+                        # Count how many matching tiles the player has
+                        matching_tiles = [t for t in pon_hand if 
+                                        t.何者 == discarded_tile.何者 and 
+                                        t.その上の数字 == discarded_tile.その上の数字]
+                        
+                        # Player needs at least 2 matching tiles to pon
+                        if len(matching_tiles) >= 2:
+                            # If the player is the agent, let them decide
+                            if pon_player_idx == 0:
+                                tile_idx = self._tile_to_index(discarded_tile)
+                                pon_action = tile_idx + self.N_TILE_TYPES
+                                valid = self.get_valid_actions()
+                                
+                                if pon_action in valid:
+                                    # Let the agent decide - THIS IS THE KEY PART THAT AFFECTS THE TRAINING LOOP
+                                    # Instead of immediately calling agent.act(), we set a flag to indicate
+                                    # the agent needs to make a pon decision in the next step call
+                                    self.pending_pon = {
+                                        'discarded_tile': discarded_tile,
+                                        'from_player': player_idx
+                                    }
+                                    # Set current player to agent so training loop knows agent should play next
+                                    self.current_player = 0
+                                    return self._get_state(), 0, False, {
+                                        "score": self.score, 
+                                        "turn": self.turn,
+                                        "penalty_456": self.penalty_456,
+                                        "complete": self.complete,
+                                        "mz_score": self.mz_score,
+                                        "hand_when_complete": self.hand_when_complete,
+                                        "pending_pon": True
+                                    }
+                            else:
+                                # Non-agent player pon decision
+                                if random.random() < 0.4: 
+                                    print(f"Player {pon_player_idx} calls ぽん!")
+                                    for _ in range(2):
+                                        for i, t in enumerate(pon_hand):
+                                            if (t.何者 == discarded_tile.何者 and 
+                                                t.その上の数字 == discarded_tile.その上の数字):
+                                                pon_hand.pop(i)
+                                                break
+                                    
+                                    self.副露[pon_player_idx].append({
+                                        'type': 'pon',
+                                        'tiles': matching_tiles[:2] + [discarded_tile],
+                                        'from_player': player_idx
+                                    })
+                                    
+                                    pon_performed = True
+                                    
+                                    self.current_player = pon_player_idx
+                                    break
+
+                # Check if game is over due to no more tiles
+                if not self.山:
+                    done = True
+                    return self._get_state(), -10, done, {
+                        "score": self.score, 
+                        "turn": self.turn,
+                        "penalty_456": self.penalty_456,
+                        "complete": self.complete,
+                        "mz_score": self.mz_score,
+                        "hand_when_complete": self.hand_when_complete
+                    }
+
+                if pon_performed:
+                    continue
+
+                # Move to next player in the game
+                self.current_player = (self.current_player + 1) % self.N_PLAYERS
+                
+                # Increment turn counter if we've gone through a full cycle
+                if player_idx == self.N_PLAYERS - 1:
+                    self.turn += 1
+        
+        # Return current state, reward, done flag, and info dict
+        return self._get_state(), reward, done, {
             "score": self.score, 
             "turn": self.turn,
             "penalty_456": self.penalty_456,
@@ -460,7 +580,14 @@ class DQNAgent:
         hand_part = state_batch[:, :34*5]
         counts = hand_part.view(B, 34, 5).argmax(dim=2)
         
-        return counts > 0
+        # Create a mask for the first 34 actions (discard actions)
+        discard_mask = counts > 0
+        
+        # Extend the mask to cover the second 34 actions (pon actions)
+        pon_mask = torch.zeros_like(discard_mask)  # Pon actions are not always valid
+        full_mask = torch.cat([discard_mask, pon_mask], dim=1)  # Combine both masks
+        
+        return full_mask
 
     def replay(self, batch_size: int = 64):
         if len(self.memory) < batch_size:
@@ -511,7 +638,7 @@ def train_agent(episodes: int = 5000, pretrained: str | None = None, device: str
     
     state_size = env.N_TILE_TYPES * env.STATE_BITS + env.N_TILE_TYPES * env.N_PLAYERS
     
-    agent = DQNAgent(state_size, env.N_TILE_TYPES, device=device)
+    agent = DQNAgent(state_size, env.N_TILE_TYPES * 2, device=device)  # Double action space for discard and pon
 
     if pretrained and os.path.exists(pretrained):
         agent.model.load_state_dict(torch.load(pretrained, map_location=device))
@@ -526,29 +653,63 @@ def train_agent(episodes: int = 5000, pretrained: str | None = None, device: str
         done = False
         
         while not done:
+            # Always check if it's the agent's turn
             if env.current_player == 0:
                 valid = env.get_valid_actions()
                 action = agent.act(state, valid)
                 next_state, reward, done, info = env.step(action)
+                
+                # Store the experience in agent's memory
                 agent.memorize(state, action, reward, next_state, done)
-                agent.replay(batch_size)
+                
+                # Train the agent on a batch of experiences
+                if len(agent.memory) > batch_size:
+                    agent.replay(batch_size)
+                
+                # Update state and reward
                 state = next_state
                 ep_reward += reward
             else:
-                # If it's not the agent's turn, just step the environment with a dummy action
+                # If it's not the agent's turn, step the environment with a dummy action
                 # The environment will handle the non-agent players internally
-                _, _, done, _ = env.step(-1)  # Dummy action, won't be used
+                next_state, reward, done, info = env.step(-1)  # Dummy action
+                
+                # Handle the case where the environment updates to make it the agent's turn
+                # This happens after pon or ron decisions
+                if not done and env.current_player == 0:
+                    state = next_state  # Update state for the agent's upcoming turn
 
+        # Decay epsilon after each episode
         agent.decay_epsilon()
+        
+        # Log training progress
         with open("training_log_4players.csv", "a") as f:
             if ep == 0:  # Write header only once
                 f.write("Episode,Score,Turn,Epsilon,Reward,Penalty456,Complete,MZScore,HandComplete\n")
-            f.write(f"{ep+1},{info['score']},{info['turn']},{agent.epsilon:.3f},{ep_reward},{info['penalty_456']},"
-                    f"{' '.join(str(x) for x in info['complete'])},{info['mz_score']}, {' '.join(info['hand_when_complete'])}\n")
+            
+            # Format the complete information
+            complete_str = ' '.join(str(x) for x in info['complete']) if info['complete'] else ''
+            hand_complete_str = ' '.join(info['hand_when_complete']) if 'hand_when_complete' in info and info['hand_when_complete'] else ''
+            
+            f.write(f"{ep+1},{info['score']},{info['turn']},{agent.epsilon:.3f},{ep_reward},"
+                    f"{info['penalty_456']},{complete_str},{info['mz_score']},{hand_complete_str}\n")
+        
+        # Print progress every 100 episodes
+        if (ep + 1) % 100 == 0:
+            print(f"Episode: {ep+1}/{episodes}, Score: {info['score']}, Turn: {info['turn']}, Epsilon: {agent.epsilon:.3f}")
+            
+            # Save model checkpoint periodically
+            if (ep + 1) % 500 == 0:
+                model_path = f"mahjong_dqn_checkpoint_{ep+1}.pth"
+                torch.save(agent.model.state_dict(), model_path)
+                print(f"Model checkpoint saved to {model_path}")
 
+    # Save final model
+    final_model_path = "mahjong_dqn_final.pth"
+    torch.save(agent.model.state_dict(), final_model_path)
+    print(f"Final model saved to {final_model_path}")
+    
     return agent
-
 
 if __name__ == "__main__":
     trained_agent = train_agent(pretrained="model.pth")
-    torch.save(trained_agent.model.state_dict(), "model.pth")
