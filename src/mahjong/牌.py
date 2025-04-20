@@ -29,8 +29,8 @@ class 麻雀牌:
         if self.赤ドラ:
             表示名 += "赤ドラ"
         # add passive state
-        if self.固有状態:
-            表示名 += f" {self.固有状態}"
+        # if self.固有状態:
+        #     表示名 += f" {self.固有状態}"
         return 表示名
 
     def 固有状態追加と検証(self) -> bool:
@@ -272,11 +272,26 @@ def 聴牌ですか(tiles: list[麻雀牌],) -> tuple[bool, list[麻雀牌]]:
         仮手牌 = tiles + [麻雀牌(何者, 数字, False)]
         if 純全帯么九(仮手牌):
             待ち牌.append(麻雀牌(何者, 数字, False))
-        elif 混全帯么九(仮手牌):
+        if 混全帯么九(仮手牌):
             待ち牌.append(麻雀牌(何者, 数字, False))
-        elif 混一色(仮手牌):
-            待ち牌.append(麻雀牌(何者, 数字, False))
-        elif 七対子(仮手牌):
+        if 四面子一雀頭ですか(仮手牌):
+            if 混一色(仮手牌):
+                待ち牌.append(麻雀牌(何者, 数字, False))
+            if 混老頭(仮手牌):
+                待ち牌.append(麻雀牌(何者, 数字, False))
+            if 字一色(仮手牌):
+                待ち牌.append(麻雀牌(何者, 数字, False))
+            if 三色同順(仮手牌):
+                待ち牌.append(麻雀牌(何者, 数字, False))
+            if 一気通貫(仮手牌):
+                待ち牌.append(麻雀牌(何者, 数字, False))
+            if 五門斉(仮手牌):
+                待ち牌.append(麻雀牌(何者, 数字, False))
+            if 小三元(仮手牌):
+                待ち牌.append(麻雀牌(何者, 数字, False))
+            if 大三元(仮手牌):
+                待ち牌.append(麻雀牌(何者, 数字, False))
+        if 七対子(仮手牌):
             待ち牌.append(麻雀牌(何者, 数字, False))
 
     # 重複除去（同種同数の牌が複数回入るのを防ぐ）
@@ -304,8 +319,6 @@ def 赤ドラの数(tiles: list[麻雀牌]) -> int:
 def 断么九(tiles: list[麻雀牌]) -> bool:
     if any("么九牌" in t.固有状態 for t in tiles):
         return False
-    if not 四面子一雀頭ですか(tiles):
-        return False
     return True
 
 # ====================================================
@@ -316,7 +329,8 @@ def 混全帯么九(tiles: list[麻雀牌]) -> bool:
     """
     使用できるのは123の順子と789の順子、および一九字牌の対子と刻子である。
     """
-
+    if all("字牌" in t.固有状態 for t in tiles):
+        return False
     counter = Counter((t.何者, t.その上の数字) for t in tiles)
 
     def _can_make_sets_chanta(c: dict[tuple[str, int], int]) -> bool:
@@ -360,32 +374,22 @@ def 混全帯么九(tiles: list[麻雀牌]) -> bool:
 
 
 def 純全帯么九(tiles: list[麻雀牌]) -> bool:
-    """
-    1.必ず混全帯么九である
-    2.手牌は字牌を含まない
-    """
     if any("字牌" in t.固有状態 for t in tiles):
         return False
     return 混全帯么九(tiles)
 
 
 def 混一色(tiles: list[麻雀牌]) -> bool:
-    """
-    四面子一雀頭の形で、かつ、数牌の種類が 1 種類である。
-    """
+    if all("字牌" in t.固有状態 for t in tiles):
+        return False
     temp_tiles = [t.何者 for t in tiles if "数牌" in t.固有状態]
     temp_tiles = list(set(temp_tiles))
     if len(temp_tiles) != 1:
-        return False
-    if not 四面子一雀頭ですか(tiles):
         return False
     return True
 
 
 def 清一色(tiles: list[麻雀牌]) -> bool:
-    """
-    字牌なし混一色
-    """
     if any("字牌" in t.固有状態 for t in tiles):
         return False
     if not 混一色(tiles):
@@ -394,14 +398,25 @@ def 清一色(tiles: list[麻雀牌]) -> bool:
 
 
 def 混老頭(tiles: list[麻雀牌]) -> bool:
-    """
-    四面子一雀頭かつすべての牌が么九牌である。
-    """
-    if any("么九牌" not in t.固有状態 for t in tiles):
+    if all("字牌" in t.固有状態 for t in tiles):
         return False
-    if not 四面子一雀頭ですか(tiles):
+    if any("中張牌" in t.固有状態 for t in tiles):
         return False
     return True
+
+
+def 清老頭(tiles: list[麻雀牌]) -> bool:
+    if any("字牌" in t.固有状態 for t in tiles):
+        return False
+    if any("中張牌" in t.固有状態 for t in tiles):
+        return False
+    return True
+
+
+def 字一色(tiles: list[麻雀牌]) -> bool:
+    if all("字牌" in t.固有状態 for t in tiles):
+        return True
+    return False
 
 
 def 七対子(tiles: list[麻雀牌]) -> bool:
@@ -415,19 +430,82 @@ def 七対子(tiles: list[麻雀牌]) -> bool:
     return True
 
 
+def 三色同順(tiles: list[麻雀牌]) -> bool:
+    """
+    1. 手牌は和了形（四面子一雀頭）である  
+    2. 同じ数値 (n, n+1, n+2) で構成される順子が、萬子・筒子・索子の 3 色すべてに 1 組ずつ存在する
+    """
+    suits = ("萬子", "筒子", "索子")
+    counter = Counter((t.何者, t.その上の数字) for t in tiles)
+    # 1〜7 から始まる順子まで調査（7‑8‑9 が最大）
+    for n in range(1, 8):
+        # 各色に n,n+1,n+2 が 1 枚ずつ揃っているか
+        if all(
+            counter[(suit, n)] >= 1 and
+            counter[(suit, n + 1)] >= 1 and
+            counter[(suit, n + 2)] >= 1
+            for suit in suits
+        ):
+            return True
+    return False
+
+
+def 一気通貫(tiles: list[麻雀牌]) -> bool:
+    """
+    同種の数牌で123・456・789と揃えると成立する。
+    """
+    suits = ("萬子", "筒子", "索子")
+    counter = Counter((t.何者, t.その上の数字) for t in tiles)
+    for suit in suits:
+        if all(counter[(suit, n)] >= 1 for n in range(1, 10)):
+            return True
+    return False
+
+
+def 五門斉(tiles: list[麻雀牌]) -> bool:
+    """
+    萬子・筒子・索子・風牌・三元牌を全て使った和了形を作った時に成立する役。
+    """
+    if any("四風牌" in t.固有状態 for t in tiles):
+        if any("三元牌" in t.固有状態 for t in tiles):
+            if any("筒子" in t.何者 for t in tiles):
+                if any("萬子" in t.何者 for t in tiles):
+                    if any("索子" in t.何者 for t in tiles):
+                        return True
+    return False
+
+
+def 小三元(tiles: list[麻雀牌]) -> bool:
+    dragons = ("白ちゃん", "發ちゃん", "中ちゃん")
+    counter = Counter(t.何者 for t in tiles if t.何者 in dragons)
+    # ３種すべて揃っていなければ不成立
+    if set(counter.keys()) != set(dragons):
+        return False
+    # ペア１つ・刻子／槓子２つを確認
+    pair_cnt   = sum(1 for c in counter.values() if c == 2)
+    triple_cnt = sum(1 for c in counter.values() if c >= 3)
+    return pair_cnt == 1 and triple_cnt == 2
+
+def 大三元(tiles: list[麻雀牌]) -> bool:
+    dragons = ("白ちゃん", "發ちゃん", "中ちゃん")
+    counter = Counter(t.何者 for t in tiles if t.何者 in dragons)
+    # ３種すべて揃っていなければ不成立
+    if set(counter.keys()) != set(dragons):
+        return False
+    triple_cnt = sum(1 for c in counter.values() if c >= 3)
+    return triple_cnt == 3
+
+
+
 # 手牌 = [
-#     麻雀牌("索子", 8, False), 麻雀牌("索子", 7, False), 麻雀牌("索子", 9, False),  
+#     麻雀牌("萬子", 8, False), 麻雀牌("萬子", 7, False), 麻雀牌("萬子", 9, False),  
 #     麻雀牌("索子", 1, False), 麻雀牌("索子", 1, False), 麻雀牌("索子", 1, False),  
-#     麻雀牌("索子", 8, False), 麻雀牌("索子", 7, False), 麻雀牌("索子", 9, False), 
-#     麻雀牌("索子", 9, False), 麻雀牌("索子", 9, False), 麻雀牌("索子", 9, False),  
+#     麻雀牌("筒子", 8, False), 麻雀牌("筒子", 7, False), 麻雀牌("筒子", 9, False), 
+#     麻雀牌("西風", 0, False), 麻雀牌("西風", 0, False), 麻雀牌("西風", 0, False),  
 #     麻雀牌("白ちゃん", 0, False),
 #     麻雀牌("白ちゃん", 0, False)           
 # ]
-# print(混全帯么九(手牌))
-# print(純全帯么九(手牌))
-# print(混一色(手牌))
-# print(七対子(手牌))
-# print(面子スコア(手牌))
+# print(五門斉(手牌))
 # a, b = 聴牌ですか(手牌)
 # print(a)
 # for _ in b:
@@ -445,6 +523,9 @@ def 点数計算(tiles: list[麻雀牌]) -> tuple[int, list[str], bool]:
     score = 0
     yaku = []
     tsumo = False
+    chanta = False
+    clearwater = False
+
     if 発(tiles):
         score += 1000
         yaku.append("發")
@@ -454,34 +535,90 @@ def 点数計算(tiles: list[麻雀牌]) -> tuple[int, list[str], bool]:
     if 白(tiles):
         score += 1000
         yaku.append("白")
+
     if 赤ドラの数(tiles) > 0:
         score += 1000 * 赤ドラの数(tiles)
-        yaku.append(f"赤ドラ {赤ドラの数(tiles)}")
-    if 断么九(tiles):
-        score += 1000
-        yaku.append("断么九")
+        yaku.append(f"赤ドラ{赤ドラの数(tiles)}")
+
+    # 混全帯么九
     if 純全帯么九(tiles):
         score += 6000
         yaku.append("純全帯么九")
         tsumo = True
-    if 混全帯么九(tiles) and "純全帯么九" not in yaku:
+        chanta = True
+    if 混全帯么九(tiles) and not chanta:
         score += 3000
         yaku.append("混全帯么九")
         tsumo = True
-    if 清一色(tiles):
-        score += 6000
-        yaku.append("清一色")
-        tsumo = True
-    if 混一色(tiles) and "清一色" not in yaku:
-        score += 3000
-        yaku.append("混一色")
-        tsumo = True
-    if 混老頭(tiles):
-        score += 6000
-        yaku.append("混老頭")
-        tsumo = True
-    if 七対子(tiles):
+
+    if 四面子一雀頭ですか(tiles):
+        if 断么九(tiles):
+            score += 1000
+            yaku.append("断么九")
+        if 五門斉(tiles):
+            score += 3000
+            yaku.append("五門斉")
+            tsumo = True
+        if 清一色(tiles):
+            score += 6000
+            yaku.append("清一色")
+            tsumo = True
+            clearwater = True
+        if 混一色(tiles) and not clearwater:
+            score += 3000
+            yaku.append("混一色")
+            tsumo = True
+        if 混老頭(tiles):
+            score += 6000
+            yaku.append("混老頭")
+            tsumo = True
+        if 三色同順(tiles):
+            score += 3000
+            yaku.append("三色同順")
+            tsumo = True
+        if 一気通貫(tiles):
+            score += 3000
+            yaku.append("一気通貫")
+            tsumo = True
+        if 小三元(tiles):
+            score += 6000
+            yaku.append("小三元")
+            tsumo = True
+        if 大三元(tiles):
+            score += 32000
+            yaku.append("大三元")
+            tsumo = True
+        if 清老頭(tiles):
+            score += 32000
+            yaku.append("清老頭")
+            tsumo = True
+        if 字一色(tiles):
+            score += 32000
+            yaku.append("字一色")
+            tsumo = True
+    elif 七対子(tiles):
         score += 3000
         yaku.append("七対子")
         tsumo = True
+        if 五門斉(tiles):
+            score += 3000
+            yaku.append("五門斉")
+            tsumo = True
+        if 混一色(tiles) and not clearwater:
+            score += 3000
+            yaku.append("混一色")
+            tsumo = True
+        if 混老頭(tiles):
+            score += 6000
+            yaku.append("混老頭")
+            tsumo = True
+        if 清老頭(tiles):
+            score += 32000
+            yaku.append("清老頭")
+            tsumo = True
+        if 字一色(tiles):
+            score += 32000
+            yaku.append("字一色")
+            tsumo = True
+
     return score, yaku, tsumo
