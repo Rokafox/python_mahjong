@@ -158,11 +158,22 @@ class MahjongEnvironment:
         # その後、聴牌の場合、追加報酬を与える
         聴牌, 何の牌 = 聴牌ですか(self.手牌)
         if 聴牌:
-            reward += 100
+            reward += 150
             # print(f"聴牌:")
             # for p in 何の牌:
             #     print(f"{p.何者} {p.その上の数字}")
             reward += len(何の牌) * 50
+                    # 五門ボーナス
+            if any("四風牌" in t.固有状態 for t in self.手牌):
+                reward += 40
+            if any("三元牌" in t.固有状態 for t in self.手牌):
+                reward += 40
+            if any("筒子" in t.何者 for t in self.手牌):
+                reward += 40
+            if any("萬子" in t.何者 for t in self.手牌):
+                reward += 40
+            if any("索子" in t.何者 for t in self.手牌):
+                reward += 40
 
 
         done = not self.山
@@ -173,9 +184,12 @@ class MahjongEnvironment:
         #         self.penalty_456 += 1
         #         reward -= 4
         
+
+
+
         # 面子ボーナス
-        self.mz_score = 面子スコア(self.手牌)
-        reward += self.mz_score * 8
+        # self.mz_score = 面子スコア(self.手牌)
+        # reward += self.mz_score * 8
         # 面子スコア: 13 枚の手牌から完成面子（順子・刻子）の最大数を求めて
         # 0面子→0, 1面子→1, 2面子→2, 3面子→4, 4面子→8を返す。雀頭は数えない。
 
@@ -210,7 +224,7 @@ class DQNAgent:
         self.memory = deque(maxlen=50_000)
         self.gamma   = 0.99
         self.epsilon = 1.0
-        self.epsilon_min   = 0.05
+        self.epsilon_min   = 0.04
         self.epsilon_decay = 0.995
         self.learning_rate = 1e-3
 
@@ -330,7 +344,7 @@ def train_agent(episodes: int = 5000, pretrained: str | None = None, device: str
             ep_reward += reward
             if done:
                 agent.decay_epsilon()
-                with open("training_logv0_2.csv", "a") as f:
+                with open("training_logv1_2.csv", "a") as f:
                     if ep == 0:  # Write header only once
                         f.write("Episode,Score,Turn,Epsilon,Reward,Penalty456,Complete,MZScore, HandComplete\n")
                     f.write(f"{ep+1},{info['score']},{info['turn']},{agent.epsilon:.3f},{ep_reward},{info['penalty_456']},{' '.join(str(x) for x in info['complete'])},{info['mz_score']}, {' '.join(info['hand_when_complete'])}\n")
@@ -340,7 +354,7 @@ def train_agent(episodes: int = 5000, pretrained: str | None = None, device: str
 
 
 if __name__ == "__main__":
-    trained_agent = train_agent(pretrained="tonziqis.pth")
-    torch.save(trained_agent.model.state_dict(), "tonziqis.pth")
+    trained_agent = train_agent(pretrained="七対五門.pth")
+    torch.save(trained_agent.model.state_dict(), "七対五門.pth")
 
 # I have trained an agent, how to use it for analyze?

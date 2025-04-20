@@ -65,7 +65,7 @@ def main():
     agent = DQNAgent(env.N_TILE_TYPES * env.STATE_BITS, env.N_TILE_TYPES, device="cuda")
     
     # Load the trained model
-    agent.model.load_state_dict(torch.load("一通清筒子.pth", map_location="cuda"))
+    agent.model.load_state_dict(torch.load("七対五門.pth", map_location="cuda"))
     agent.model.eval()  # Set to evaluation mode
     
     # Create a sample hand (modify this with the hand you want to analyze)
