@@ -24,7 +24,10 @@ class 麻雀牌:
         self.init最後の処理()
 
     def __str__(self):
-        表示名 = f"{self.何者}"
+        表示名 = ""
+        if self.副露:
+            表示名 += "副露"
+        表示名 += f"{self.何者}"
         if self.その上の数字 > 0:
             表示名 += f"{self.その上の数字}"
         if self.赤ドラ:

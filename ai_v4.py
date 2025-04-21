@@ -149,12 +149,12 @@ class MahjongEnvironment:
         # 聴牌の場合、大量の報酬を与える
         聴牌, 何の牌 = 聴牌ですか(self.手牌)
         if 聴牌:
-            reward_extra += 300
+            reward_extra += 600
             # print(f"聴牌:")
             # for p in 何の牌:
             #     print(f"{p.何者} {p.その上の数字}")
             self.total_tennpai += len(何の牌)
-            reward_extra += len(何の牌) * 75
+            reward_extra += len(何の牌) * 200
         
         # 面子スコア: 13 枚の手牌から完成面子（順子・刻子）の最大数を求めて
         # 0面子→0, 1面子→1, 2面子→2, 3面子→4, 4面子→8を返す。雀頭は数えない。
@@ -493,7 +493,7 @@ def train_agent(episodes: int = 5000, pretrained: str | None = None, device: str
     if pretrained and os.path.exists(pretrained):
         agent.model.load_state_dict(torch.load(pretrained, map_location=device))
         agent.update_target_model()
-        agent.epsilon = 0.005
+        agent.epsilon = 0.035
         print(f"[INFO] 既存モデル {pretrained} をロードしました。")
 
     batch_size = 64
@@ -523,7 +523,7 @@ def train_agent(episodes: int = 5000, pretrained: str | None = None, device: str
                     envseat = "West"
                 elif env.seat == 3:
                     envseat = "North"
-                with open("training_logv4_0.csv", "a") as f:
+                with open("training_logv4_1.csv", "a") as f:
                     if ep == 0:  # Write header only once
                         f.write("Episode,Seat,Score,Turn,Epsilon,penalty_A,Yaku,MZ_Score,TZ_Score,Tenpai,HandComplete\n")
                     f.write(f"{ep+1},{envseat},{info['score']},{info['turn']},{agent.epsilon:.3f},{info['penalty_A']},{' '.join(str(x) for x in info['completeyaku'])},{info['mz_score']},{info['tuiz_score']},{info['tenpai']},{' '.join(info['hand_when_complete'])}\n")
