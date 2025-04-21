@@ -313,6 +313,18 @@ def 中(tiles: list[麻雀牌]) -> bool:
 def 白(tiles: list[麻雀牌]) -> bool:
     return len([t for t in tiles if t.何者 == "白ちゃん"]) == 3
 
+def 東(tiles: list[麻雀牌]) -> bool:
+    return len([t for t in tiles if t.何者 == "東風"]) == 3
+
+def 南(tiles: list[麻雀牌]) -> bool:
+    return len([t for t in tiles if t.何者 == "南風"]) == 3
+
+def 西(tiles: list[麻雀牌]) -> bool:
+    return len([t for t in tiles if t.何者 == "西風"]) == 3
+
+def 北(tiles: list[麻雀牌]) -> bool:
+    return len([t for t in tiles if t.何者 == "北風"]) == 3
+
 def 赤ドラの数(tiles: list[麻雀牌]) -> int:
     return len([t for t in tiles if t.赤ドラ])
 
@@ -516,7 +528,10 @@ def 大三元(tiles: list[麻雀牌]) -> bool:
 # ==========================
 # 点数計算
 # ==========================
-def 点数計算(tiles: list[麻雀牌]) -> tuple[int, list[str], bool]:
+def 点数計算(tiles: list[麻雀牌], seat: int) -> tuple[int, list[str], bool]:
+    """
+    seat: 0:東 1:南 2:西 3:北
+    """
     if len(tiles) != 14:
         raise ValueError(f"手牌は 14 枚である必要があります: 今{len(tiles)}枚。")
     tiles.sort(key=lambda x: (x.sort_order, x.その上の数字))
@@ -525,6 +540,19 @@ def 点数計算(tiles: list[麻雀牌]) -> tuple[int, list[str], bool]:
     win = False
     chanta = False
     clearwater = False
+
+    if seat == 0 and 東(tiles):
+        score += 1000
+        yaku.append("東")
+    if seat == 1 and 南(tiles):
+        score += 1000
+        yaku.append("南")
+    if seat == 2 and 西(tiles):
+        score += 1000
+        yaku.append("西")
+    if seat == 3 and 北(tiles):
+        score += 1000
+        yaku.append("北")
 
     if 発(tiles):
         score += 1000

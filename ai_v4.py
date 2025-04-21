@@ -14,7 +14,7 @@ from 牌 import 聴牌ですか, 麻雀牌, 山を作成する, 面子スコア,
 # ---------------------------
 class MahjongEnvironment:
     """
-    強化学習用の簡易麻雀環境 (門前・1 人プレイ)
+    強化学習用の麻雀環境
     """
 
     N_TILE_TYPES = 34               # 萬・筒・索 (9*3) + 字牌 7
@@ -27,17 +27,15 @@ class MahjongEnvironment:
     # ゲーム管理
     # --------------------------------------------------
     def reset(self):
-        # self.山 = 山を作成する()[:70] # 半分しかないの山で難易度を増やす
         self.山 = 山を作成する()
-        self.手牌: list[麻雀牌] = self.山[:13]
-        self.山   = self.山[13:]
+        self.手牌, self.山 = self.山[:13], self.山[13:]
+        self.seat = random.randint(0, 3)  # 0=東, 1=南, 2=西, 3=北
         self.score = 0
         self.turn  = 0
-        # self.invalid_action = 0
         self.penalty_456 = 0
         self.tennpai = 0
         self.mz_score = 0
-        self.complete = []
+        self.完成した役 = []
         self.hand_when_complete = []
         return self._get_state()
 
@@ -50,7 +48,9 @@ class MahjongEnvironment:
         for idx in range(self.N_TILE_TYPES):
             cnt = counter.get(idx, 0)
             state[idx * self.STATE_BITS + cnt] = 1.0  # 0〜4
-        return state
+        seat = np.zeros(4, dtype=np.float32) # 東南西北
+        seat[self.seat] = 1.0
+        return np.concatenate([state, seat])  # → 170 + 4 = 174 次元
 
     # --------------------------------------------------
     # タイル ⇔ インデックス
@@ -106,7 +106,6 @@ class MahjongEnvironment:
     # 有効アクション
     # --------------------------------------------------
     def get_valid_actions(self) -> list[int]:
-        """いま打てる牌（重複を除いたインデックス）のリストを返す"""
         return sorted({self._tile_to_index(t) for t in self.手牌})
 
 
@@ -122,27 +121,27 @@ class MahjongEnvironment:
 
         # ① ツモ
         self.手牌.append(self.山.pop(0))
-        a, b, c = 点数計算(self.手牌) # return 点数, 役リスト, ツモ？
+        a, b, c = 点数計算(self.手牌, self.seat) # return 点数, 役リスト, ツモ？
         if c:
             print(f"ツモ！{b}")
-            self.complete = b
-            reward += int(a * 2)
+            self.完成した役 = b
+            reward += int(a)
             done = True
             remaining_turns = 126 - self.turn
             assert remaining_turns >= 0
-            reward += int((75 * remaining_turns) * 0.6)
+            reward += int((400 * remaining_turns) * 0.5)
             self.mz_score = 16
             self.score += reward 
             self.hand_when_complete = [str(t) for t in self.手牌]
             return self._get_state(), reward, done, {"score": self.score, "turn": self.turn,
                                                     "penalty_456": self.penalty_456,
-                                                    "complete": self.complete,
+                                                    "completeyaku": self.完成した役,
                                                     "mz_score": self.mz_score,
                                                     "hand_when_complete": self.hand_when_complete}
             
         # ② 打牌
         # reward -= max(1, int(self.turn * 0.8)) # Will greatly hinder learning process
-        reward -= (2 + int(self.turn * 0.1))  # アクションの基本罰則
+        reward -= (2 + int(self.turn * 0.2))  # アクションの基本罰則
         tile_type = self._index_to_tile_type(action)
         for i, t in enumerate(self.手牌):
             if (t.何者, t.その上の数字) == tile_type:
@@ -155,43 +154,25 @@ class MahjongEnvironment:
         # その後、聴牌の場合、追加報酬を与える
         聴牌, 何の牌 = 聴牌ですか(self.手牌)
         if 聴牌:
-            reward += 150
+            reward += 400
             # print(f"聴牌:")
             # for p in 何の牌:
             #     print(f"{p.何者} {p.その上の数字}")
-            reward += len(何の牌) * 50
-            # 五門ボーナス
-            # if any("四風牌" in t.固有状態 for t in self.手牌):
-            #     reward += 40
-            # if any("三元牌" in t.固有状態 for t in self.手牌):
-            #     reward += 40
-            # if any("筒子" in t.何者 for t in self.手牌):
-            #     reward += 40
-            # if any("萬子" in t.何者 for t in self.手牌):
-            #     reward += 40
-            # if any("索子" in t.何者 for t in self.手牌):
-            #     reward += 40
+            reward += len(何の牌) * 100
 
         done = not self.山
-
-        # 456 ペナルティ
-        # for t in self.手牌:
-        #     if t.何者 in {"萬子", "筒子", "索子"} and t.その上の数字 in {4,5,6}:
-        #         self.penalty_456 += 1
-        #         reward -= 4
         
-        # 面子ボーナス
-        # self.mz_score = 面子スコア(self.手牌)
-        # reward += self.mz_score * 8
         # 面子スコア: 13 枚の手牌から完成面子（順子・刻子）の最大数を求めて
         # 0面子→0, 1面子→1, 2面子→2, 3面子→4, 4面子→8を返す。雀頭は数えない。
+        self.mz_score = 面子スコア(self.手牌)
+        reward += self.mz_score * 8
 
         # 内部状態更新
         self.score += reward
         self.turn  += 1
         return self._get_state(), reward, done, {"score": self.score, "turn": self.turn,
                                                 "penalty_456": self.penalty_456,
-                                                "complete": self.complete,
+                                                "completeyaku": self.完成した役,
                                                 "mz_score": self.mz_score,
                                                 "hand_when_complete": self.hand_when_complete}
 
@@ -201,7 +182,7 @@ class MahjongEnvironment:
 # ---------------------------
 class DQNAgent:
 
-    TARGET_UPDATE_EVERY = 2000  # ステップ
+    TARGET_UPDATE_EVERY = 2000
 
     def __init__(self, state_size: int, action_size: int, device: str = "cpu"):
         self.state_size  = state_size
@@ -254,14 +235,10 @@ class DQNAgent:
         self.memory.append(transition)
 
     def _valid_mask_from_state(self, state_batch: torch.Tensor) -> torch.Tensor:
-        """
-        state_batch: (B, 34*5)
-        return      : (B, 34)   True = 打てる（枚数>0）
-        """
         B = state_batch.size(0)
-        # -> (B, 34, 5) で one‑hot の argmax (=枚数 0‑4)
-        counts = state_batch.view(B, 34, 5).argmax(dim=2)
-        return counts > 0  # True if 枚数>0
+        tile_state = state_batch[:, :170] # Only the first 170 is for tiles, the last 4 are for seat
+        counts = tile_state.view(B, 34, 5).argmax(dim=2)
+        return counts > 0
 
     def replay(self, batch_size: int = 64):
         if len(self.memory) < batch_size:
@@ -277,12 +254,11 @@ class DQNAgent:
         # Q(s,a)
         q_sa = self.model(states).gather(1, actions)
 
-        # y = r + γ max_a' Q_target(s',a')
         with torch.no_grad():
-            q_next = self.target_model(next_states)           # (B, 34)
+            q_next = self.target_model(next_states)
             valid_mask = self._valid_mask_from_state(next_states)
-            q_next[~valid_mask] = -1e9                       # 無効を強制的に低スコア化
-            q_next_max = q_next.max(1, keepdim=True)[0]      # (B, 1)
+            q_next[~valid_mask] = -1e9
+            q_next_max = q_next.max(1, keepdim=True)[0]
             y = rewards + self.gamma * q_next_max * (1 - dones)
 
         loss = self.criterion(q_sa, y)
@@ -291,7 +267,6 @@ class DQNAgent:
         nn.utils.clip_grad_norm_(self.model.parameters(), 5.0)
         self.optimizer.step()
 
-        # target Q 更新
         self._step_count += 1
         if self._step_count % self.TARGET_UPDATE_EVERY == 0:
             self.update_target_model()
@@ -308,9 +283,9 @@ class DQNAgent:
 # トレーニングループ
 # ---------------------------
 
-def train_agent(episodes: int = 5000, pretrained: str | None = None, device: str = "cuda") -> DQNAgent:
+def train_agent(episodes: int = 5000, pretrained: str | None = None, device: str = "cpu") -> DQNAgent:
     env = MahjongEnvironment()
-    agent = DQNAgent(env.N_TILE_TYPES * env.STATE_BITS, env.N_TILE_TYPES, device=device)
+    agent = DQNAgent(env.N_TILE_TYPES * env.STATE_BITS + 4, env.N_TILE_TYPES, device=device)
 
     if pretrained and os.path.exists(pretrained):
         agent.model.load_state_dict(torch.load(pretrained, map_location=device))
@@ -332,10 +307,10 @@ def train_agent(episodes: int = 5000, pretrained: str | None = None, device: str
             ep_reward += reward
             if done:
                 agent.decay_epsilon()
-                with open("training_logv2_0.csv", "a") as f:
+                with open("training_logv4_0.csv", "a") as f:
                     if ep == 0:  # Write header only once
-                        f.write("Episode,Score,Turn,Epsilon,Reward,Penalty456,Complete,MZScore, HandComplete\n")
-                    f.write(f"{ep+1},{info['score']},{info['turn']},{agent.epsilon:.3f},{ep_reward},{info['penalty_456']},{' '.join(str(x) for x in info['complete'])},{info['mz_score']}, {' '.join(info['hand_when_complete'])}\n")
+                        f.write("Episode,Score,Turn,Epsilon,Penalty456,Yaku,MZScore, HandComplete\n")
+                    f.write(f"{ep+1},{info['score']},{info['turn']},{agent.epsilon:.3f},{info['penalty_456']},{' '.join(str(x) for x in info['completeyaku'])},{info['mz_score']}, {' '.join(info['hand_when_complete'])}\n")
                 break
 
     return agent
