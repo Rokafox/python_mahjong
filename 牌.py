@@ -17,6 +17,7 @@ class 麻雀牌:
         self.固有状態: list[str] = []
         self.アクティブ状態: list[str] = []
         self.ドラ: bool = False
+        self.副露: bool = False
         if not self.固有状態追加と検証():
             raise Exception(f"不正な牌: {何者}, {その上の数字}")
         self.sort_order = self.set_sort_order()
@@ -196,21 +197,12 @@ def 対子スコア(tiles: list[麻雀牌]) -> int:
     if len(tiles) != 13:
         raise ValueError("手牌は 13 枚である必要があります")
     tiles.sort(key=lambda x: (x.sort_order, x.その上の数字))
-    
-    # 各牌の出現回数をカウント
     counter = Counter((t.何者, t.その上の数字) for t in tiles)
-    
-    # 対子の数を数える
     pairs_count = 0
     for (_, _), cnt in counter.items():
-        # 各牌について、2枚以上あれば対子として数える
-        # 例: 3枚あれば1対子、4枚あれば2対子
         pairs_count += cnt // 2
-    
-    # スコアに変換（0→0, 1→1, 2→2, 3→4, 4→8, 5→16, 6→32）
     if pairs_count > 6:
-        pairs_count = 6  # 最大6対子までとする
-    
+        pairs_count = 6
     return [0, 1, 2, 4, 8, 16, 32][pairs_count]
 
 

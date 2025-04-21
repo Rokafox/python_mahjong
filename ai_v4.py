@@ -7,7 +7,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
-from 牌 import 聴牌ですか, 麻雀牌, 山を作成する, 面子スコア, 点数計算
+from 牌 import 対子スコア, 聴牌ですか, 麻雀牌, 山を作成する, 面子スコア, 点数計算
 
 
 class MahjongEnvironment:
@@ -32,14 +32,16 @@ class MahjongEnvironment:
         self.sandbag_a_tiles = self.山[13:26]
         self.sandbag_b_tiles = self.山[26:39]
         self.sandbag_c_tiles = self.山[39:52]
+        self.current_actor = 0  # 0=agent, 1=sandbag_a, 2=sandbag_b, 3=sandbag_c
         self.山 = self.山[52:]  # Remaining tiles
         self.discard_pile = []  # Record what tiles are discarded in current game.
         self.seat = random.randint(0, 3)  # 0=東, 1=南, 2=西, 3=北
         self.score = 0
         self.turn  = 0
-        self.penalty_456 = 0
-        self.tennpai = 0
+        self.penalty_A = 0
+        self.total_tennpai = 0
         self.mz_score = 0
+        self.tuiz_score = 0
         self.完成した役 = []
         self.hand_when_complete = []
         return self._get_state()
@@ -58,7 +60,7 @@ class MahjongEnvironment:
         for tile in self.discard_pile:
             discard_counts[self._tile_to_index(tile)] += 1.0
         discard_counts /= 4.0  # 正規化（最大4枚）
-        return np.concatenate([state, seat, discard_counts]) # → 170 + 4 + 34 = 208 次元
+        return np.concatenate([state, seat, discard_counts]) # → 170 + 4 + 34 = 208
 
 
     def _tile_to_index(self, tile):
@@ -109,32 +111,69 @@ class MahjongEnvironment:
 
 
     def get_valid_actions(self) -> list[int]:
-        return sorted({self._tile_to_index(t) for t in self.手牌})
+        if self.current_actor == 0:
+            return sorted({self._tile_to_index(t) for t in self.手牌 if not t.副露})
+        else:
+            hand_counts = Counter(self._tile_to_index(t) for t in self.手牌 if not t.副露)
+            pon_actions = []
+            for tile_idx, cnt in hand_counts.items():
+                if cnt >= 2:
+                    pon_actions.append(34 + tile_idx) # action 34 - 67: pon true
+                    pon_actions.append(68 + tile_idx) # action 68 - 102: pon false
+            return pon_actions
 
 
-    def step(self, action: int):
+    def _agent_extra_reward(self, 手牌: list[麻雀牌]) -> int:
+        reward_extra = 0
+        # 聴牌の場合、大量の報酬を与える
+        聴牌, 何の牌 = 聴牌ですか(self.手牌)
+        if 聴牌:
+            reward_extra += 300
+            # print(f"聴牌:")
+            # for p in 何の牌:
+            #     print(f"{p.何者} {p.その上の数字}")
+            self.total_tennpai += len(何の牌)
+            reward_extra += len(何の牌) * 75
+        
+        # 面子スコア: 13 枚の手牌から完成面子（順子・刻子）の最大数を求めて
+        # 0面子→0, 1面子→1, 2面子→2, 3面子→4, 4面子→8を返す。雀頭は数えない。
+        mz_score = 面子スコア(self.手牌)
+        self.mz_score += mz_score
+        reward_extra += mz_score * 6
+
+        # 対子スコア: 13 枚の手牌から完成対子の最大数を求めて
+        # 0対子→0, 1対子→1, 2対子→2, 3対子→4, 4対子→8, 5対子→16, 6対子→32を返す。
+        tuiz_score = 対子スコア(self.手牌)
+        self.tuiz_score += tuiz_score
+        reward_extra += tuiz_score * 4
+
+        return reward_extra
+
+
+    def _step_agent(self, action: int, after_pon: bool):
         reward = 0
-        if not self.山:
-            raise Exception("Trying to call step() when deck is empty.")
 
         # ① ツモ
-        self.手牌.append(self.山.pop(0))
+        if not after_pon:
+            self.手牌.append(self.山.pop(0))
         a, b, c = 点数計算(self.手牌, self.seat) # This func returns 点数int, 完成した役list, 和了形bool
         if c:
             print(f"ツモ！{b}")
             self.完成した役 = b
             reward += int(a)
             done = True
-            remaining_turns = 126 - self.turn
+            remaining_turns = 90 - self.turn
             assert remaining_turns >= 0
-            reward += int((400 * remaining_turns) * 0.5)
+            reward += int((300 * remaining_turns) * 0.5)
             self.mz_score = 16
             self.score += reward 
             self.hand_when_complete = [str(t) for t in self.手牌]
             return self._get_state(), reward, done, {"score": self.score, "turn": self.turn,
-                                                    "penalty_456": self.penalty_456,
-                                                    "completeyaku": self.完成した役,
+                                                    "penalty_A": self.penalty_A,
+                                                    "tenpai": self.total_tennpai,
                                                     "mz_score": self.mz_score,
+                                                    "tuiz_score": self.tuiz_score,
+                                                    "completeyaku": self.完成した役,
                                                     "hand_when_complete": self.hand_when_complete}
             
         # ② 打牌
@@ -149,30 +188,119 @@ class MahjongEnvironment:
         else:
             raise ValueError(f"Invalid action: {action} (tile not in hand)")
 
-        # 聴牌の場合、大量の報酬を与える
-        聴牌, 何の牌 = 聴牌ですか(self.手牌)
-        if 聴牌:
-            reward += 400
-            # print(f"聴牌:")
-            # for p in 何の牌:
-            #     print(f"{p.何者} {p.その上の数字}")
-            reward += len(何の牌) * 100
+        reward += self._agent_extra_reward(self.手牌)
 
         done = not self.山
-        
-        # 面子スコア: 13 枚の手牌から完成面子（順子・刻子）の最大数を求めて
-        # 0面子→0, 1面子→1, 2面子→2, 3面子→4, 4面子→8を返す。雀頭は数えない。
-        self.mz_score = 面子スコア(self.手牌)
-        reward += self.mz_score * 8
-
-        # 内部状態更新
         self.score += reward
         self.turn  += 1
+        self.current_actor += 1  # Next actor is sandbag_a
+        # should be a cycle, but agent is always 0
         return self._get_state(), reward, done, {"score": self.score, "turn": self.turn,
-                                                "penalty_456": self.penalty_456,
-                                                "completeyaku": self.完成した役,
+                                                "penalty_A": self.penalty_A,
+                                                "tenpai": self.total_tennpai,
                                                 "mz_score": self.mz_score,
+                                                "tuiz_score": self.tuiz_score,
+                                                "completeyaku": self.完成した役,
                                                 "hand_when_complete": self.hand_when_complete}
+
+
+    def _step_sandbag(self, action: int):
+        # The sandbag cannot do anything but randomly discard a tile,
+        # and the discarded tile is then added to the discard pile.
+        # during sandbag's turn, the agent can "ロン", "ポン" the tile.
+        # "ロン" is automatically checked like ツモ.
+        # "ロン": try add the tile to the hand and check if it is a ツモ,
+        # if so, it is a "ロン".
+        # "ポン": agent, if having the 2 same tiles as the discarded tile,
+        # can "ポン" the tile and add it to the hand, if so, mark the 3 tiles as 副露
+        # by setting 牌.副露 = True and remove the tile in pile. 
+        # After ポン, current_actor is set to the agent but
+        # the agent cannot draw a tile this turn.
+        # Determine which sandbag is currently active
+        sandbag_tiles = None
+        if self.current_actor == 1:
+            sandbag_tiles = self.sandbag_a_tiles
+        elif self.current_actor == 2:
+            sandbag_tiles = self.sandbag_b_tiles
+        elif self.current_actor == 3:
+            sandbag_tiles = self.sandbag_c_tiles
+        
+        # Draw a tile for the sandbag if there are tiles left in the mountain
+        new_tile = self.山.pop(0)
+        sandbag_tiles.append(new_tile)
+        done = not self.山
+    
+        # Sandbag randomly discards a tile
+        discard_idx = random.randint(0, len(sandbag_tiles) - 1)
+        discarded_tile = sandbag_tiles.pop(discard_idx)
+        self.discard_pile.append(discarded_tile)
+
+        # Check if agent can ロン (win) with this tile
+        temp_hand = self.手牌.copy()
+        temp_hand.append(discarded_tile)
+        点数, 役, 和了形 = 点数計算(temp_hand, self.seat)
+        
+        if 和了形:
+            # Agent can ロン
+            print(f"ロン！{役}")
+            self.完成した役 = 役
+            reward = int(点数)
+            done = True
+            remaining_turns = 90 - self.turn
+            assert remaining_turns >= 0
+            reward += int((300 * remaining_turns) * 0.5)
+            self.score += reward
+            self.hand_when_complete = [str(t) for t in temp_hand]
+            return self._get_state(), reward, done, {"score": self.score, "turn": self.turn,
+                                                "penalty_A": self.penalty_A,
+                                                "tenpai": self.total_tennpai,
+                                                "mz_score": self.mz_score,
+                                                "tuiz_score": self.tuiz_score,
+                                                "completeyaku": self.完成した役,
+                                                "hand_when_complete": self.hand_when_complete}
+    
+        if done: # 注意：最後はポンできない。これは他のルールと違う。
+            return self._get_state(), 0, done, {"score": self.score, "turn": self.turn,
+                                                "penalty_A": self.penalty_A,
+                                                "tenpai": self.total_tennpai,
+                                                "mz_score": self.mz_score,
+                                                "tuiz_score": self.tuiz_score,
+                                                "completeyaku": self.完成した役,
+                                                "hand_when_complete": self.hand_when_complete}
+    
+        # Check if agent can ポン (pong)
+        # Count how many of the discarded tile type the agent has
+        same_tile_count = 0
+        for tile in self.手牌:
+            if (tile.何者, tile.その上の数字) == (discarded_tile.何者, discarded_tile.その上の数字) and not tile.副露:
+                same_tile_count += 1
+        
+        # If agent has at least 2 of the same tile, they can pon
+        if same_tile_count >= 2:
+            # The agent will decide to pon or not
+            pass
+
+        # Move to next actor (cycle through 0-3)
+        self.current_actor = (self.current_actor + 1) % 4
+        self.turn += 1
+        
+        # Return state, no reward for agent during sandbag turns
+        return self._get_state(), 0, done, {"score": self.score, "turn": self.turn,
+                                            "penalty_A": self.penalty_A,
+                                            "tenpai": self.total_tennpai,
+                                            "mz_score": self.mz_score,
+                                            "tuiz_score": self.tuiz_score,
+                                            "completeyaku": self.完成した役,
+                                            "hand_when_complete": self.hand_when_complete}
+
+
+    def step(self, action: int, after_pon: bool = False):
+        if not self.山 and not after_pon:
+            raise Exception("Trying to call step() when deck is empty.")
+        if self.current_actor == 0:
+            return self._step_agent(action, after_pon)
+        else:
+            return self._step_sandbag(action)
 
 
 
@@ -218,8 +346,8 @@ class DQNAgent:
 
         state_t = torch.from_numpy(state).float().unsqueeze(0).to(self.device)
         with torch.no_grad():
-            q_vals = self.model(state_t)[0]          # shape: (34,)
-            q_valid = q_vals[valid_actions]          # マスク
+            q_vals = self.model(state_t)[0]
+            q_valid = q_vals[valid_actions]
             best_idx = q_valid.argmax().item()
             return valid_actions[best_idx]           # 元のタイル番号を返す
 
@@ -231,9 +359,12 @@ class DQNAgent:
 
     def _valid_mask_from_state(self, state_batch: torch.Tensor) -> torch.Tensor:
         B = state_batch.size(0)
-        tile_state = state_batch[:, :170] # Only the first 170 is for tiles, the last 4 are for seat
-        counts = tile_state.view(B, 34, 5).argmax(dim=2)
-        return counts > 0
+        tile_state = state_batch[:, :170]  # [B, 170]
+        counts = tile_state.view(B, 34, 5).argmax(dim=2)  # [B, 34]
+        mask34 = counts > 0  # [B, 34]
+        mask_rest = torch.ones((B, 68), dtype=torch.bool, device=state_batch.device)
+        full_mask = torch.cat([mask34, mask_rest], dim=1)  # [B, 102]
+        return full_mask
 
     def replay(self, batch_size: int = 64):
         if len(self.memory) < batch_size:
@@ -245,6 +376,17 @@ class DQNAgent:
         rewards     = torch.as_tensor(rewards,               dtype=torch.float32, device=self.device).unsqueeze(1)
         next_states = torch.as_tensor(np.array(next_states), dtype=torch.float32, device=self.device)
         dones       = torch.as_tensor(dones,                 dtype=torch.float32, device=self.device).unsqueeze(1)
+
+        # Filter out invalid actions (-1)
+        valid_indices = actions.squeeze(1) != -1
+        states = states[valid_indices]
+        actions = actions[valid_indices]
+        rewards = rewards[valid_indices]
+        next_states = next_states[valid_indices]
+        dones = dones[valid_indices]
+
+        if len(states) == 0:  # Skip if no valid actions in the batch
+            return
 
         # Q(s,a)
         q_sa = self.model(states).gather(1, actions)
@@ -275,9 +417,9 @@ class DQNAgent:
 
 
 
-def train_agent(episodes: int = 5000, pretrained: str | None = None, device: str = "cpu") -> DQNAgent:
+def train_agent(episodes: int = 5000, pretrained: str | None = None, device: str = "cuda") -> DQNAgent:
     env = MahjongEnvironment()
-    agent = DQNAgent(env.N_TILE_TYPES * env.STATE_BITS + 4 + env.N_TILE_TYPES, env.N_TILE_TYPES, device=device)
+    agent = DQNAgent(208, env.N_TILE_TYPES * 3, device=device)
 
     if pretrained and os.path.exists(pretrained):
         agent.model.load_state_dict(torch.load(pretrained, map_location=device))
@@ -290,8 +432,11 @@ def train_agent(episodes: int = 5000, pretrained: str | None = None, device: str
         state = env.reset()
         ep_reward = 0
         while True:
-            valid = env.get_valid_actions()
-            action = agent.act(state, valid)
+            valid: list = env.get_valid_actions()
+            if valid:
+                action: int = agent.act(state, valid)
+            else:
+                action = -1
             next_state, reward, done, info = env.step(action)
             agent.memorize(state, action, reward, next_state, done)
             agent.replay(batch_size)
@@ -309,8 +454,8 @@ def train_agent(episodes: int = 5000, pretrained: str | None = None, device: str
                     envseat = "North"
                 with open("training_logv4_0.csv", "a") as f:
                     if ep == 0:  # Write header only once
-                        f.write("Episode,Seat,Score,Turn,Epsilon,Penalty456,Yaku,MZScore, HandComplete\n")
-                    f.write(f"{ep+1},{envseat},{info['score']},{info['turn']},{agent.epsilon:.3f},{info['penalty_456']},{' '.join(str(x) for x in info['completeyaku'])},{info['mz_score']}, {' '.join(info['hand_when_complete'])}\n")
+                        f.write("Episode,Seat,Score,Turn,Epsilon,penalty_A,Yaku,MZ_Score,TZ_Score,Tenpai,HandComplete\n")
+                    f.write(f"{ep+1},{envseat},{info['score']},{info['turn']},{agent.epsilon:.3f},{info['penalty_A']},{' '.join(str(x) for x in info['completeyaku'])},{info['mz_score']},{info['tuiz_score']},{info['tenpai']},{' '.join(info['hand_when_complete'])}\n")
                 break
 
     return agent
