@@ -602,7 +602,6 @@ def 点数計算(tiles: list[麻雀牌], seat: int) -> tuple[int, list[str], boo
         score += 1000 * 赤ドラの数(tiles)
         yaku.append(f"赤ドラ{赤ドラの数(tiles)}")
 
-    # 混全帯么九
     if 純全帯么九(tiles):
         score += 6000
         yaku.append("純全帯么九")
@@ -666,25 +665,27 @@ def 点数計算(tiles: list[麻雀牌], seat: int) -> tuple[int, list[str], boo
         score += 3000
         yaku.append("七対子")
         win = True
+        if 断么九(tiles):
+            score += 1000
+            yaku.append("断么九")
         if 五門斉(tiles):
             score += 3000
             yaku.append("五門斉")
-            win = True
+        if 清一色(tiles):
+            score += 6000
+            yaku.append("清一色")
+            clearwater = True
         if 混一色(tiles) and not clearwater:
             score += 3000
             yaku.append("混一色")
-            win = True
         if 混老頭(tiles):
             score += 6000
             yaku.append("混老頭")
-            win = True
         if 清老頭(tiles):
             score += 32000
             yaku.append("清老頭")
-            win = True
         if 字一色(tiles):
             score += 32000
             yaku.append("字一色")
-            win = True
 
     return score, yaku, win
