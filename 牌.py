@@ -305,6 +305,8 @@ def 聴牌ですか(tiles: list[麻雀牌],) -> tuple[bool, list[麻雀牌]]:
                 待ち牌.append(麻雀牌(何者, 数字, False))
             if 五門斉(仮手牌):
                 待ち牌.append(麻雀牌(何者, 数字, False))
+            if 対々和(仮手牌):
+                待ち牌.append(麻雀牌(何者, 数字, False))
             if 小三元(仮手牌):
                 待ち牌.append(麻雀牌(何者, 数字, False))
             if 大三元(仮手牌):
@@ -505,6 +507,17 @@ def 五門斉(tiles: list[麻雀牌]) -> bool:
     return False
 
 
+def 対々和(tiles: list[麻雀牌]) -> bool:
+    """
+    すべての面子が刻子または槓子で構成されている和了形。
+    """
+    counter = Counter((t.何者, t.その上の数字) for t in tiles)
+    # すべての牌が刻子または槓子であることを確認
+    if len(counter) <= 5:
+        return True
+    return False
+
+
 def 小三元(tiles: list[麻雀牌]) -> bool:
     dragons = ("白ちゃん", "發ちゃん", "中ちゃん")
     counter = Counter(t.何者 for t in tiles if t.何者 in dragons)
@@ -528,14 +541,14 @@ def 大三元(tiles: list[麻雀牌]) -> bool:
 
 
 # 手牌 = [
-#     麻雀牌("萬子", 8, False), 麻雀牌("萬子", 7, False), 麻雀牌("萬子", 9, False),  
+#     麻雀牌("萬子", 7, False), 麻雀牌("萬子", 7, False), 麻雀牌("萬子", 7, False),  
 #     麻雀牌("索子", 1, False), 麻雀牌("索子", 1, False), 麻雀牌("索子", 1, False),  
-#     麻雀牌("筒子", 8, False), 麻雀牌("筒子", 7, False), 麻雀牌("筒子", 9, False), 
+#     麻雀牌("筒子", 8, False), 麻雀牌("筒子", 8, False), 麻雀牌("筒子", 8, False), 
 #     麻雀牌("西風", 0, False), 麻雀牌("西風", 0, False), 麻雀牌("西風", 0, False),  
 #     麻雀牌("白ちゃん", 0, False),
 #     麻雀牌("白ちゃん", 0, False)           
 # ]
-# print(五門斉(手牌))
+# print(対々和(手牌))
 # a, b = 聴牌ですか(手牌)
 # print(a)
 # for _ in b:
@@ -604,6 +617,10 @@ def 点数計算(tiles: list[麻雀牌], seat: int) -> tuple[int, list[str], boo
         if 五門斉(tiles):
             score += 3000
             yaku.append("五門斉")
+            win = True
+        if 対々和(tiles):
+            score += 3000
+            yaku.append("対々和")
             win = True
         if 清一色(tiles):
             score += 6000
