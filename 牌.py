@@ -188,6 +188,32 @@ def 面子スコア(tiles: list[麻雀牌]) -> int:
     return [0, 1, 2, 4, 8][melds]
 
 
+def 対子スコア(tiles: list[麻雀牌]) -> int:
+    """
+    13 枚の手牌から完成対子の最大数を求めて
+    0対子→0, 1対子→1, 2対子→2, 3対子→4, 4対子→8, 5対子→16, 6対子→32を返す。
+    """
+    if len(tiles) != 13:
+        raise ValueError("手牌は 13 枚である必要があります")
+    tiles.sort(key=lambda x: (x.sort_order, x.その上の数字))
+    
+    # 各牌の出現回数をカウント
+    counter = Counter((t.何者, t.その上の数字) for t in tiles)
+    
+    # 対子の数を数える
+    pairs_count = 0
+    for (_, _), cnt in counter.items():
+        # 各牌について、2枚以上あれば対子として数える
+        # 例: 3枚あれば1対子、4枚あれば2対子
+        pairs_count += cnt // 2
+    
+    # スコアに変換（0→0, 1→1, 2→2, 3→4, 4→8, 5→16, 6→32）
+    if pairs_count > 6:
+        pairs_count = 6  # 最大6対子までとする
+    
+    return [0, 1, 2, 4, 8, 16, 32][pairs_count]
+
+
 def 四面子一雀頭ですか(tiles: list[麻雀牌]) -> bool:
     """
     """

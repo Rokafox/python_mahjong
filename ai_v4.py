@@ -9,9 +9,7 @@ import torch.optim as optim
 
 from 牌 import 聴牌ですか, 麻雀牌, 山を作成する, 面子スコア, 点数計算
 
-# ---------------------------
-# 環境
-# ---------------------------
+
 class MahjongEnvironment:
     """
     強化学習用の麻雀環境
@@ -28,7 +26,14 @@ class MahjongEnvironment:
     # --------------------------------------------------
     def reset(self):
         self.山 = 山を作成する()
-        self.手牌, self.山 = self.山[:13], self.山[13:]
+        self.手牌 = self.山[:13]
+        # give tiles to the remaining 3 sandbags, these sandbags is used for simulating 4 player environment,
+        # they behave randomly and their only purpose is to train the agent. We should not consider them as real players.
+        self.sandbag_a_tiles = self.山[13:26]
+        self.sandbag_b_tiles = self.山[26:39]
+        self.sandbag_c_tiles = self.山[39:52]
+        self.山 = self.山[52:]  # Remaining tiles
+        self.discard_pile = []  # Record what tiles are discarded in current game.
         self.seat = random.randint(0, 3)  # 0=東, 1=南, 2=西, 3=北
         self.score = 0
         self.turn  = 0
@@ -39,9 +44,7 @@ class MahjongEnvironment:
         self.hand_when_complete = []
         return self._get_state()
 
-    # --------------------------------------------------
-    # 状態表現
-    # --------------------------------------------------
+
     def _get_state(self) -> np.ndarray:
         state = np.zeros(self.N_TILE_TYPES * self.STATE_BITS, dtype=np.float32)
         counter = Counter(self._tile_to_index(t) for t in self.手牌)
@@ -50,11 +53,14 @@ class MahjongEnvironment:
             state[idx * self.STATE_BITS + cnt] = 1.0  # 0〜4
         seat = np.zeros(4, dtype=np.float32) # 東南西北
         seat[self.seat] = 1.0
-        return np.concatenate([state, seat])  # → 170 + 4 = 174 次元
+        # 捨て牌の枚数（連続値）← 最大136枚なので数値として問題なし
+        discard_counts = np.zeros(self.N_TILE_TYPES, dtype=np.float32)
+        for tile in self.discard_pile:
+            discard_counts[self._tile_to_index(tile)] += 1.0
+        discard_counts /= 4.0  # 正規化（最大4枚）
+        return np.concatenate([state, seat, discard_counts]) # → 170 + 4 + 34 = 208 次元
 
-    # --------------------------------------------------
-    # タイル ⇔ インデックス
-    # --------------------------------------------------
+
     def _tile_to_index(self, tile):
         """Convert tile to unique index"""
         if tile.何者 == "萬子":
@@ -102,26 +108,18 @@ class MahjongEnvironment:
             return ("中ちゃん", 0)
 
 
-    # --------------------------------------------------
-    # 有効アクション
-    # --------------------------------------------------
     def get_valid_actions(self) -> list[int]:
         return sorted({self._tile_to_index(t) for t in self.手牌})
 
 
-    # --------------------------------------------------
-    # step
-    # --------------------------------------------------
     def step(self, action: int):
         reward = 0
-        assert any((t_idx := self._tile_to_index(t)) == action for t in self.手牌), \
-            "手牌に無い牌が指定されました"
         if not self.山:
-            return self._get_state(), -10, True, {}
+            raise Exception("Trying to call step() when deck is empty.")
 
         # ① ツモ
         self.手牌.append(self.山.pop(0))
-        a, b, c = 点数計算(self.手牌, self.seat) # return 点数, 役リスト, ツモ？
+        a, b, c = 点数計算(self.手牌, self.seat) # This func returns 点数int, 完成した役list, 和了形bool
         if c:
             print(f"ツモ！{b}")
             self.完成した役 = b
@@ -141,17 +139,17 @@ class MahjongEnvironment:
             
         # ② 打牌
         # reward -= max(1, int(self.turn * 0.8)) # Will greatly hinder learning process
-        reward -= (2 + int(self.turn * 0.2))  # アクションの基本罰則
+        reward -= 2  # base penalty
         tile_type = self._index_to_tile_type(action)
         for i, t in enumerate(self.手牌):
             if (t.何者, t.その上の数字) == tile_type:
-                self.手牌.pop(i)
+                discarded_tile = self.手牌.pop(i)
+                self.discard_pile.append(discarded_tile)
                 break
         else:
-            # 無効アクション
             raise ValueError(f"Invalid action: {action} (tile not in hand)")
 
-        # その後、聴牌の場合、追加報酬を与える
+        # 聴牌の場合、大量の報酬を与える
         聴牌, 何の牌 = 聴牌ですか(self.手牌)
         if 聴牌:
             reward += 400
@@ -177,9 +175,7 @@ class MahjongEnvironment:
                                                 "hand_when_complete": self.hand_when_complete}
 
 
-# ---------------------------
-# DQN
-# ---------------------------
+
 class DQNAgent:
 
     TARGET_UPDATE_EVERY = 2000
@@ -188,8 +184,6 @@ class DQNAgent:
         self.state_size  = state_size
         self.action_size = action_size
         self.device = torch.device(device)
-
-        # バッファ拡大
         self.memory = deque(maxlen=50_000)
         self.gamma   = 0.99
         self.epsilon = 1.0
@@ -197,7 +191,7 @@ class DQNAgent:
         self.epsilon_decay = 0.995
         self.learning_rate = 1e-3
 
-        self.model        = self._build_model().to(self.device)
+        self.model = self._build_model().to(self.device)
         self.target_model = self._build_model().to(self.device)
         self.update_target_model()
 
@@ -208,7 +202,8 @@ class DQNAgent:
 
     def _build_model(self):
         return nn.Sequential(
-            nn.Linear(self.state_size, 256), nn.ReLU(),
+            nn.Linear(self.state_size, 512), nn.ReLU(),
+            nn.Linear(512, 256), nn.ReLU(),
             nn.Linear(256, 128), nn.ReLU(),
             nn.Linear(128, self.action_size)
         )
@@ -279,13 +274,10 @@ class DQNAgent:
             self.epsilon *= self.epsilon_decay
 
 
-# ---------------------------
-# トレーニングループ
-# ---------------------------
 
 def train_agent(episodes: int = 5000, pretrained: str | None = None, device: str = "cpu") -> DQNAgent:
     env = MahjongEnvironment()
-    agent = DQNAgent(env.N_TILE_TYPES * env.STATE_BITS + 4, env.N_TILE_TYPES, device=device)
+    agent = DQNAgent(env.N_TILE_TYPES * env.STATE_BITS + 4 + env.N_TILE_TYPES, env.N_TILE_TYPES, device=device)
 
     if pretrained and os.path.exists(pretrained):
         agent.model.load_state_dict(torch.load(pretrained, map_location=device))
@@ -307,10 +299,18 @@ def train_agent(episodes: int = 5000, pretrained: str | None = None, device: str
             ep_reward += reward
             if done:
                 agent.decay_epsilon()
+                if env.seat == 0:
+                    envseat = "East"
+                elif env.seat == 1:
+                    envseat = "South"
+                elif env.seat == 2:
+                    envseat = "West"
+                elif env.seat == 3:
+                    envseat = "North"
                 with open("training_logv4_0.csv", "a") as f:
                     if ep == 0:  # Write header only once
-                        f.write("Episode,Score,Turn,Epsilon,Penalty456,Yaku,MZScore, HandComplete\n")
-                    f.write(f"{ep+1},{info['score']},{info['turn']},{agent.epsilon:.3f},{info['penalty_456']},{' '.join(str(x) for x in info['completeyaku'])},{info['mz_score']}, {' '.join(info['hand_when_complete'])}\n")
+                        f.write("Episode,Seat,Score,Turn,Epsilon,Penalty456,Yaku,MZScore, HandComplete\n")
+                    f.write(f"{ep+1},{envseat},{info['score']},{info['turn']},{agent.epsilon:.3f},{info['penalty_456']},{' '.join(str(x) for x in info['completeyaku'])},{info['mz_score']}, {' '.join(info['hand_when_complete'])}\n")
                 break
 
     return agent
