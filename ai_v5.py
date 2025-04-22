@@ -20,7 +20,7 @@ class MahjongEnvironment:
 
     def __init__(self):
         self.agent_tile_count = 13
-        self.sandbag_tile_count = 5 # slightly reduced difficulty
+        self.sandbag_tile_count = 13 # slightly reduced difficulty
         self.reset()
 
     # --------------------------------------------------
@@ -33,10 +33,10 @@ class MahjongEnvironment:
         agent_tiles = 山[:agent_count]
         sandbag_a = 山[agent_count:agent_count + sandbag_count]
         sandbag_b = 山[agent_count + sandbag_count:agent_count + 2 * sandbag_count]
-        sandbag_c = 山[agent_count + 2 * sandbag_count:agent_count + 3 * sandbag_count]
-        remaining = 山[agent_count + 3 * sandbag_count:]
+        # sandbag_c = 山[agent_count + 2 * sandbag_count:agent_count + 3 * sandbag_count]
+        remaining = 山[agent_count + 2 * sandbag_count:]
 
-        return agent_tiles, sandbag_a, sandbag_b, sandbag_c, remaining
+        return agent_tiles, sandbag_a, sandbag_b, remaining
     
 
     def reset(self):
@@ -45,7 +45,7 @@ class MahjongEnvironment:
             self.手牌,
             self.sandbag_a_tiles,
             self.sandbag_b_tiles,
-            self.sandbag_c_tiles,
+            # self.sandbag_c_tiles,
             self.山
         ) = self.配牌を割り当てる(
             self.山,
@@ -159,8 +159,8 @@ class MahjongEnvironment:
         # 面子スコア: 13 枚の手牌から完成面子（順子・刻子）の最大数を求めて
         # 0面子→0, 1面子→1, 2面子→2, 3面子→4, 4面子→8を返す。雀頭は数えない。
         mz_score = 面子スコア(self.手牌)
-        self.mz_score += mz_score * 15
-        reward_extra += mz_score * 15
+        self.mz_score += mz_score * 10
+        reward_extra += mz_score * 10
 
         # 対子スコア: 13 枚の手牌から完成対子の最大数を求めて
         # 0対子→0, 1対子→1, 2対子→2, 3対子→4, 4対子→8, 5対子→16, 6対子→32を返す。
@@ -206,14 +206,20 @@ class MahjongEnvironment:
         # reward -= max(1, int(self.turn * 0.8)) # Will greatly hinder learning process
         reward -= 2  # base penalty
         tile_type = self._index_to_tile_type(action)
-        for i, t in enumerate(self.手牌):
+        # print(tile_type) # ('筒子', 5)
+        target_tile = None
+        for t in [t for t in self.手牌 if not t.副露]:
             if (t.何者, t.その上の数字) == tile_type:
-                discarded_tile = self.手牌.pop(i)
-                self.discard_pile.append(discarded_tile)
+                target_tile = t
                 break
-        else:
+        if target_tile is None:
             raise ValueError(f"Invalid action: {action} (tile not in hand)")
-
+        # Remove the tile from the hand and add it to the discard pile
+        assert target_tile.副露 == False, f"Exposed tile can not be discarded! {target_tile.何者}{target_tile.その上の数字}"
+        self.手牌.remove(target_tile)
+        self.discard_pile.append(target_tile)
+    
+        # Reward by how good the agent has formed the hand
         reward += self._agent_extra_reward(self.手牌)
 
         done = not self.山
@@ -255,8 +261,8 @@ class MahjongEnvironment:
             sandbag_tiles = self.sandbag_a_tiles
         elif self.current_actor == 2:
             sandbag_tiles = self.sandbag_b_tiles
-        elif self.current_actor == 3:
-            sandbag_tiles = self.sandbag_c_tiles
+        # elif self.current_actor == 3: # The player is removed
+        #     sandbag_tiles = self.sandbag_c_tiles
         
         # Draw a tile for the sandbag if there are tiles left in the mountain
         new_tile = self.山.pop(0)
@@ -325,10 +331,10 @@ class MahjongEnvironment:
                     # Agent decides to pon
                     # Mark the 2 tiles in agent's hand as 副露
                     for i in sorted(same_tiles[:2], reverse=True):
-                        self.手牌[i].副露 = True
+                        self.手牌[i].mark_as_exposed()
                     
                     # Add the discarded tile to agent's hand and mark it as 副露
-                    discarded_tile.副露 = True
+                    discarded_tile.mark_as_exposed()
                     self.手牌.append(discarded_tile)
                     
                     # Remove the discarded tile from the discard pile
@@ -346,8 +352,81 @@ class MahjongEnvironment:
                                                     "completeyaku": self.完成した役,
                                                     "hand_when_complete": self.hand_when_complete}
 
-        # Move to next actor (cycle through 0-3)
-        self.current_actor = (self.current_actor + 1) % 4
+        # Check if agent can チー (Chii)
+        # Agent can only Chii if they have two consecutive tiles that can form a sequence with the discarded tile
+        # Custom rule: agent can only chii if the discarded tile is 中張牌 (2-8), and the only allowed sequence is (n-1, n, n+1)
+        # Custom rule: any player can chii from any other player
+        
+        can_chii = False
+        chii_tiles = []
+        
+        if "中張牌" in discarded_tile.固有状態:
+            suit = discarded_tile.何者 # 萬子, 筒子, or 索子
+            number = discarded_tile.その上の数字
+            assert number in range(1, 10), "Invalid tile number for Chii"
+            
+            possible_sequence = [(suit, number-1), (suit, number+1)] # [n-1,n,n+1]
+            
+            # print(f"Checking sequence: {possible_sequence}")
+            # Checking sequence: [('筒子', 6), ('筒子', 7)]
+            check = 0
+            # check if both these tiles are in the hand
+            for combo in possible_sequence:
+                # combo: ('筒子', 6) then ('筒子', 7)
+                for p in self.手牌:
+                    if p.何者 == combo[0] and p.その上の数字 == combo[1] and not p.副露:
+                        check += 1
+                        print(f"Found tile: {p.何者} {p.その上の数字}") 
+                        chii_tiles.append(p)
+                        break # break for p in self.手牌 loop
+            assert check <= 2, "No, not happening"
+            if check == 2:
+                can_chii = True
+            else:
+                chii_tiles.clear()
+                        
+
+            if can_chii:
+                # The agent will decide to chii or not based on the action value dictionary
+                # We use the same mechanism as pon to decide
+                chii_action = 34 + discarded_tile_idx  # Same as pon action
+                no_chii_action = 68 + discarded_tile_idx  # Same as no_pon action
+                
+                if full_action_value_dict and chii_action in full_action_value_dict and no_chii_action in full_action_value_dict:
+                    if full_action_value_dict[chii_action] > full_action_value_dict[no_chii_action]:
+                        # print(f"チー！{discarded_tile.何者} {discarded_tile.その上の数字}")
+                        # Mark the 2 tiles in hand that is the chii_tiles to be 副露
+                        ct_t_check = 0
+                        for ct in chii_tiles:
+                            assert ct.副露 == False, f"No, not happening"
+                        for t in self.手牌:
+                            for ct in chii_tiles:
+                                if t.何者 == ct.何者 and t.その上の数字 == ct.その上の数字 and t.赤ドラ == ct.赤ドラ and t.副露 == ct.副露:
+                                    print(f"Marking tile as 副露: {t.何者} {t.その上の数字}")
+                                    t.mark_as_exposed()
+                                    ct_t_check += 1
+                        assert ct_t_check == 2, "No, not happening"
+
+                        discarded_tile.mark_as_exposed()  # Mark the discarded tile as 副露
+
+                        self.手牌.append(discarded_tile)
+                        self.discard_pile.pop()
+
+                        self.current_actor = 0
+                        self.agent_after_pon = True  # Reuse the same flag for simplicity
+                        # Return state with after_pon=True for next step
+                        return self._get_state(), 0, done, {"score": self.score, "turn": self.turn,
+                                                        "penalty_A": self.penalty_A,
+                                                        "tenpai": self.total_tennpai,
+                                                        "mz_score": self.mz_score,
+                                                        "tuiz_score": self.tuiz_score,
+                                                        "completeyaku": self.完成した役,
+                                                        "hand_when_complete": self.hand_when_complete}
+
+
+
+        # Move to next actor (cycle through 0-2) prev: 0-3
+        self.current_actor = (self.current_actor + 1) % 3
         self.turn += 1
         
         # Return state, no reward for agent during sandbag turns
@@ -361,6 +440,7 @@ class MahjongEnvironment:
 
 
     def step(self, action: int, after_pon: bool = False, full_action_value_dict: dict = None):
+        # print(self.current_actor) 012 012 012
         if not self.山 and not after_pon:
             raise Exception("Trying to call step() when deck is empty.")
         self.agent_after_pon = False

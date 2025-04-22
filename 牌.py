@@ -105,6 +105,11 @@ class 麻雀牌:
         else:
             raise Exception(f"不正な牌: {self.何者}")
         
+    def mark_as_exposed(self):
+        if self.副露:
+            raise Exception(f"牌はすでに副露されています: {self.何者}, {self.その上の数字}")
+        self.副露 = True
+        return None
 
 # ==========================
 # 山
