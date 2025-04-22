@@ -18,6 +18,9 @@ class 麻雀牌:
         self.アクティブ状態: list[str] = []
         self.ドラ: bool = False
         self.副露: bool = False
+        self.marked_a: bool = False # mark the tile for temporary use
+        self.marked_b: bool = False
+        self.marked_c: bool = False
         if not self.固有状態追加と検証():
             raise Exception(f"不正な牌: {何者}, {その上の数字}")
         self.sort_order = self.set_sort_order()
@@ -691,6 +694,6 @@ def 点数計算(tiles: list[麻雀牌], seat: int) -> tuple[int, list[str], boo
             yaku.append("清老頭")
         if 字一色(tiles):
             score += 32000
-            yaku.append("字一色")
+            yaku.append("大七星")
 
     return score, yaku, win
