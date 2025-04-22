@@ -137,12 +137,42 @@ class MahjongEnvironment:
             return sorted({self._tile_to_index(t) for t in self.手牌 if not t.副露})
         else:
             hand_counts = Counter(self._tile_to_index(t) for t in self.手牌 if not t.副露)
-            pon_actions = []
-            for tile_idx, cnt in hand_counts.items():
-                if cnt >= 2:
-                    pon_actions.append(34 + tile_idx) # action 34 - 67: pon true
-                    pon_actions.append(68 + tile_idx) # action 68 - 102: pon false
-            return pon_actions
+            # print(f"hand_counts: {hand_counts}")
+            # hand_counts: Counter({22: 2, 0: 1, 1: 1, 2: 1, 9: 1, 11: 1, 20: 1, 26: 1, 30: 1, 27: 1, 31: 1, 33: 1})
+            # 手牌2枚以上はポンできる、3枚以上はチーできる
+            chiipon_actions = []
+            # pon: 同じ牌が2枚以上ある場合、ポンできる
+            if len([t for t in self.手牌 if not t.副露]) > 1:
+                for tile_idx, cnt in hand_counts.items():
+                    if cnt > 1: 
+                        chiipon_actions.append(34 + tile_idx) # action 34 - 67: pon true for specific tile
+                        chiipon_actions.append(68 + tile_idx) # action 68 - 102: pon false for specific tile
+            # chii: Condition not implemented
+            if len([t for t in self.手牌 if not t.副露]) > 2:
+                # # 萬子 2-8: NO chii
+                # chiipon_actions.extend([102, 103, 104, 105, 106, 107, 108])
+                # # 萬子 2-8: chii
+                # chiipon_actions.extend([109, 110, 111, 112, 113, 114, 115])
+                # # 筒子 2-8: NO chii
+                # chiipon_actions.extend([116, 117, 118, 119, 120, 121, 122])
+                # # 筒子 2-8: chii
+                # chiipon_actions.extend([123, 124, 125, 126, 127, 128, 129])
+                # # 索子 2-8: NO chii
+                # chiipon_actions.extend([130, 131, 132, 133, 134, 135, 136])
+                # # 索子 2-8: chii
+                # chiipon_actions.extend([137, 138, 139, 140, 141, 142, 143])
+                # Chii 判定: 中張牌(2-8)に対して (n-1, n+1) の2枚があるか確認
+                suits = ["萬子", "筒子", "索子"]
+                for suit_index, suit in enumerate(suits):
+                    numbers = sorted([t.その上の数字 for t in self.手牌 if t.何者 == suit and not t.副露])
+                    number_set = set(numbers)
+                    for n in range(2, 9):  # 中張牌: 2〜8
+                        if (n - 1 in number_set) and (n + 1 in number_set):
+                            # NO chii action
+                            chiipon_actions.append(102 + (n - 2) + suit_index * 14)
+                            # chii action
+                            chiipon_actions.append(109 + (n - 2) + suit_index * 14)
+            return chiipon_actions
 
 
     def _agent_extra_reward(self, 手牌: list[麻雀牌]) -> int:
@@ -355,20 +385,17 @@ class MahjongEnvironment:
                                                         "completeyaku": self.完成した役,
                                                         "hand_when_complete": self.hand_when_complete}
 
-            # Check if agent can チー (Chii)
-            # Agent can only Chii if they have two consecutive tiles that can form a sequence with the discarded tile
-            # Custom rule: agent can only chii if the discarded tile is 中張牌 (2-8), and the only allowed sequence is (n-1, n, n+1)
-            # Custom rule: any player can chii from any other player
+        # Check if agent can チー (Chii)
+        # Agent can only Chii if they have two consecutive tiles that can form a sequence with the discarded tile
+        # Custom rule: agent can only chii if the discarded tile is 中張牌 (2-8), and the only allowed sequence is (n-1, n, n+1)
+        # Custom rule: any player can chii from any other player
         if len([t for t in self.手牌 if not t.副露]) > 2:
             can_chii = False
             chii_tiles = []
             
             if "中張牌" in discarded_tile.固有状態:
-                suit = discarded_tile.何者 # 萬子, 筒子, or 索子
                 number = discarded_tile.その上の数字
-                assert number in range(1, 10), "Invalid tile number for Chii"
-                
-                possible_sequence = [(suit, number-1), (suit, number+1)] # [n-1,n,n+1]
+                possible_sequence = [(discarded_tile.何者, number-1), (discarded_tile.何者, number+1)] # [n-1,n,n+1]
                 
                 # print(f"Checking sequence: {possible_sequence}")
                 # Checking sequence: [('筒子', 6), ('筒子', 7)]
@@ -379,12 +406,10 @@ class MahjongEnvironment:
                     for p in self.手牌:
                         if p.何者 == combo[0] and p.その上の数字 == combo[1] and not p.副露:
                             check += 1
-                            # print(f"Found tile: {p.何者} {p.その上の数字}") 
                             chii_tiles.append(p)
-                            break # break for p in self.手牌 loop
+                            break
                 assert check <= 2, "No, not happening"
                 if check == 2:
-                    # assert chii_tiles[0].その上の数字 != chii_tiles[1].その上の数字, "No, not happening"
                     can_chii = True
                 else:
                     chii_tiles.clear()
@@ -392,12 +417,17 @@ class MahjongEnvironment:
 
                 if can_chii:
                     # The agent will decide to chii or not based on the action value dictionary
-                    # We use the same mechanism as pon to decide
-                    chii_action = 34 + discarded_tile_idx  # Same as pon action
-                    no_chii_action = 68 + discarded_tile_idx  # Same as no_pon action
+                    chii_action_base = {
+                        "萬子": 109,  # 萬子 2-8 chii: 109-115
+                        "筒子": 123,  # 筒子 2-8 chii: 123-129
+                        "索子": 137,  # 索子 2-8 chii: 137-143
+                    }[discarded_tile.何者]
+
+                    chii_action_idx = chii_action_base + (number - 2)  # 対応するchiiアクション番号
+                    no_chii_action_idx = chii_action_idx - 7         # 対応するNO chiiアクション番号（chii action - 7）
                     
-                    if full_action_value_dict and chii_action in full_action_value_dict and no_chii_action in full_action_value_dict:
-                        if full_action_value_dict[chii_action] > full_action_value_dict[no_chii_action]:
+                    if full_action_value_dict and chii_action_idx in full_action_value_dict and no_chii_action_idx in full_action_value_dict:
+                        if full_action_value_dict[chii_action_idx] > full_action_value_dict[no_chii_action_idx]:
                             # print(f"チー！{discarded_tile.何者} {discarded_tile.その上の数字}")
                             # Mark the 2 tiles in hand that is the chii_tiles to be 副露
                             ct_t_check = 0
@@ -405,13 +435,13 @@ class MahjongEnvironment:
                                 assert ctn.副露 == False, f"No, not happening"
                             for t in self.手牌:
                                 if t.何者 == chii_tiles[0].何者 and t.その上の数字 == chii_tiles[0].その上の数字 and t.赤ドラ == chii_tiles[0].赤ドラ and t.副露 == chii_tiles[0].副露:
-                                    print(f"Found tile: {t.何者} {t.その上の数字}")
+                                    # print(f"Found tile: {t.何者} {t.その上の数字}")
                                     t.marked_a = True
                                     ct_t_check += 1
                                     break
                             for t in self.手牌:
                                 if t.何者 == chii_tiles[1].何者 and t.その上の数字 == chii_tiles[1].その上の数字 and t.赤ドラ == chii_tiles[1].赤ドラ and t.副露 == chii_tiles[1].副露:
-                                    print(f"Found tile: {t.何者} {t.その上の数字}")
+                                    # print(f"Found tile: {t.何者} {t.その上の数字}")
                                     t.marked_a = True
                                     ct_t_check += 1
                                     break
@@ -647,8 +677,9 @@ class DQNAgent:
         tile_state = state_batch[:, :170]  # [B, 170]
         counts = tile_state.view(B, 34, 5).argmax(dim=2)  # [B, 34]
         mask34 = counts > 0  # [B, 34]
-        mask_rest = torch.ones((B, 68), dtype=torch.bool, device=state_batch.device)
-        full_mask = torch.cat([mask34, mask_rest], dim=1)  # [B, 102]
+        mask_pon = torch.ones((B, 68), dtype=torch.bool, device=state_batch.device)
+        mask_chii = torch.ones((B, 42), dtype=torch.bool, device=state_batch.device)
+        full_mask = torch.cat([mask34, mask_pon, mask_chii], dim=1)  # [B, 144]
         return full_mask
 
     def replay(self, batch_size: int = 64):
@@ -733,7 +764,7 @@ class DQNAgent:
 
 def train_agent(episodes: int = 5000, pretrained: str | None = None, device: str = "cuda") -> DQNAgent:
     env = MahjongEnvironment()
-    agent = DQNAgent(208, env.N_TILE_TYPES * 3, device=device) # state_size: 208, action_size: 34 * 3
+    agent = DQNAgent(208, env.N_TILE_TYPES * 3 + 7 * 6, device=device) # state_size: 208, action_size: 102 + 42 
 
     if pretrained and os.path.exists(pretrained):
         agent.model.load_state_dict(torch.load(pretrained, map_location=device))
@@ -752,7 +783,6 @@ def train_agent(episodes: int = 5000, pretrained: str | None = None, device: str
             else:
                 action = -1
                 avd = None
-            # if exist info["after_pon"],
             next_state, reward, done, info = env.step(action, env.agent_after_pon, full_action_value_dict=avd)
             agent.memorize(state, action, reward, next_state, done)
             agent.replay(batch_size)
@@ -778,5 +808,5 @@ def train_agent(episodes: int = 5000, pretrained: str | None = None, device: str
 
 
 if __name__ == "__main__":
-    trained_agent = train_agent(pretrained="model.pth")
-    torch.save(trained_agent.model.state_dict(), "model.pth")
+    trained_agent = train_agent(pretrained="modelv5.pth")
+    torch.save(trained_agent.model.state_dict(), "modelv5.pth")
