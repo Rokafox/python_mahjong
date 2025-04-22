@@ -180,30 +180,35 @@ class MahjongEnvironment:
         # 聴牌の場合、大量の報酬を与える
         聴牌, 何の牌 = 聴牌ですか(self.手牌)
         if 聴牌:
-            reward_extra += 600
+            reward_extra += 800
             # print(f"聴牌:")
             # for p in 何の牌:
             #     print(f"{p.何者} {p.その上の数字}")
             self.total_tennpai += len(何の牌)
-            reward_extra += len(何の牌) * 200
+            reward_extra += len(何の牌) * 100
         
         # 面子スコア: 13 枚の手牌から完成面子（順子・刻子）の最大数を求めて
         # 0面子→0, 1面子→1, 2面子→2, 3面子→4, 4面子→8を返す。雀頭は数えない。
         mz_score = 面子スコア(self.手牌)
-        self.mz_score += mz_score * 10
-        reward_extra += mz_score * 10
+        self.mz_score += mz_score * 12
+        reward_extra += mz_score * 12
 
         # 対子スコア: 13 枚の手牌から完成対子の最大数を求めて
-        # 0対子→0, 1対子→1, 2対子→2, 3対子→4, 4対子→8, 5対子→16, 6対子→32を返す。
-        # tuiz_score = 対子スコア(self.手牌)
-        # self.tuiz_score += tuiz_score * 2
-        # reward_extra += tuiz_score * 2
+        # 0対子→0, 1対子→1, 2対子→2, 3対子→4, 4対子→8, 5対子→16, 6対子→32を返す。副露は数えない。
+        tuiz_score = 対子スコア(self.手牌)
+        self.tuiz_score += tuiz_score * 4
+        reward_extra += tuiz_score * 4
 
-        # Give penalty for having 4,5,6, the more the agent has, the more penalty it gets.
+        # Big penalty for having 4,5,6.
         # for t in self.手牌:
         #     if t.何者 in {"萬子", "筒子", "索子"} and t.その上の数字 in {4,5,6}:
-        #         reward_extra -= 4
-        #         self.penalty_A += 4
+        #         reward_extra -= 40
+        #         self.penalty_A += 40
+
+        # Big reward for having 1,2,3 and 7,8,9 and 字牌
+        # for t in self.手牌:
+        #     if t.何者 in {"白ちゃん", "發ちゃん", "中ちゃん"}:
+        #         reward_extra += 40
 
         return reward_extra
 
@@ -762,7 +767,7 @@ class DQNAgent:
             self.epsilon *= self.epsilon_decay
 
 
-def train_agent(episodes: int = 5000, pretrained: str | None = None, device: str = "cuda") -> DQNAgent:
+def train_agent(episodes: int = 800000, pretrained: str | None = None, device: str = "cuda") -> DQNAgent:
     env = MahjongEnvironment()
     agent = DQNAgent(208, env.N_TILE_TYPES * 3 + 7 * 6, device=device) # state_size: 208, action_size: 102 + 42 
 
@@ -802,6 +807,12 @@ def train_agent(episodes: int = 5000, pretrained: str | None = None, device: str
                     if ep == 0:  # Write header only once
                         f.write("Episode,Seat,Score,Turn,Epsilon,penalty_A,Yaku,MZ_Score,TZ_Score,Tenpai,HandComplete\n")
                     f.write(f"{ep+1},{envseat},{info['score']},{info['turn']},{agent.epsilon:.3f},{info['penalty_A']},{' '.join(str(x) for x in info['completeyaku'])},{info['mz_score']},{info['tuiz_score']},{info['tenpai']},{' '.join(info['hand_when_complete'])}\n")
+
+                # モデル保存
+                if (ep + 1) % 1000 == 0:
+                    save_path = f"saved_model_ep{ep+1}.pth"
+                    torch.save(agent.model.state_dict(), save_path)
+                    print(f"[INFO] モデルを保存しました: {save_path}")
                 break
 
     return agent
