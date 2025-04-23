@@ -190,14 +190,14 @@ class MahjongEnvironment:
         # 面子スコア: 13 枚の手牌から完成面子（順子・刻子）の最大数を求めて
         # 0面子→0, 1面子→1, 2面子→2, 3面子→4, 4面子→8を返す。雀頭は数えない。
         mz_score = 面子スコア(self.手牌)
-        self.mz_score += mz_score * 12
-        reward_extra += mz_score * 12
+        self.mz_score += mz_score * 9
+        reward_extra += mz_score * 9
 
         # 対子スコア: 13 枚の手牌から完成対子の最大数を求めて
         # 0対子→0, 1対子→1, 2対子→2, 3対子→4, 4対子→8, 5対子→16, 6対子→32を返す。副露は数えない。
         tuiz_score = 対子スコア(self.手牌)
-        self.tuiz_score += tuiz_score * 4
-        reward_extra += tuiz_score * 4
+        self.tuiz_score += tuiz_score * 3
+        reward_extra += tuiz_score * 3
 
         # Big penalty for having 4,5,6.
         # for t in self.手牌:
@@ -782,6 +782,7 @@ def train_agent(episodes: int = 800000, pretrained: str | None = None, device: s
         state = env.reset()
         ep_reward = 0
         while True:
+            # Critical Error: The Agent SHOULD ONLY GOT TO CHOOSE DISCARD TILE AFTER A DRAW.
             valid: list = env.get_valid_actions()
             if valid:
                 action, avd = agent.act(state, valid)
@@ -803,14 +804,14 @@ def train_agent(episodes: int = 800000, pretrained: str | None = None, device: s
                     envseat = "West"
                 elif env.seat == 3:
                     envseat = "North"
-                with open("training_logv5_0.csv", "a") as f:
+                with open("training_logv5_1.csv", "a") as f:
                     if ep == 0:  # Write header only once
                         f.write("Episode,Seat,Score,Turn,Epsilon,penalty_A,Yaku,MZ_Score,TZ_Score,Tenpai,HandComplete\n")
                     f.write(f"{ep+1},{envseat},{info['score']},{info['turn']},{agent.epsilon:.3f},{info['penalty_A']},{' '.join(str(x) for x in info['completeyaku'])},{info['mz_score']},{info['tuiz_score']},{info['tenpai']},{' '.join(info['hand_when_complete'])}\n")
 
                 # モデル保存
                 if (ep + 1) % 1000 == 0:
-                    save_path = f"saved_model_ep{ep+1}.pth"
+                    save_path = f"modelv5_1_ep{ep+1}.pth"
                     torch.save(agent.model.state_dict(), save_path)
                     print(f"[INFO] モデルを保存しました: {save_path}")
                 break
@@ -819,5 +820,5 @@ def train_agent(episodes: int = 800000, pretrained: str | None = None, device: s
 
 
 if __name__ == "__main__":
-    trained_agent = train_agent(pretrained="modelv5.pth")
+    trained_agent = train_agent(pretrained="modelv5_ep7000.pth")
     torch.save(trained_agent.model.state_dict(), "modelv5.pth")

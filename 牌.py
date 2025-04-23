@@ -1,5 +1,6 @@
 from collections import Counter
 from copy import deepcopy
+from itertools import permutations
 import random
 
 class 麻雀牌:
@@ -312,6 +313,8 @@ def 聴牌ですか(tiles: list[麻雀牌],) -> tuple[bool, list[麻雀牌]]:
         if 四面子一雀頭ですか(仮手牌):
             if 混一色(仮手牌):
                 待ち牌.append(麻雀牌(何者, 数字, False))
+            if 清一色(仮手牌):
+                待ち牌.append(麻雀牌(何者, 数字, False))
             if 混老頭(仮手牌):
                 待ち牌.append(麻雀牌(何者, 数字, False))
             if 清老頭(仮手牌):
@@ -324,11 +327,21 @@ def 聴牌ですか(tiles: list[麻雀牌],) -> tuple[bool, list[麻雀牌]]:
                 待ち牌.append(麻雀牌(何者, 数字, False))
             if 三色同刻(仮手牌):
                 待ち牌.append(麻雀牌(何者, 数字, False))
+            if 三連刻(仮手牌):
+                待ち牌.append(麻雀牌(何者, 数字, False))
+            if 四連刻(仮手牌):
+                待ち牌.append(麻雀牌(何者, 数字, False))
+            if 小三風(仮手牌):
+                待ち牌.append(麻雀牌(何者, 数字, False))
+            if 三風刻(仮手牌):
+                待ち牌.append(麻雀牌(何者, 数字, False))
             if 四喜和(仮手牌):
                 待ち牌.append(麻雀牌(何者, 数字, False))
             if 三色同順(仮手牌):
                 待ち牌.append(麻雀牌(何者, 数字, False))
             if 一気通貫(仮手牌):
+                待ち牌.append(麻雀牌(何者, 数字, False))
+            if 三色通貫(仮手牌):
                 待ち牌.append(麻雀牌(何者, 数字, False))
             if 五門斉(仮手牌):
                 待ち牌.append(麻雀牌(何者, 数字, False))
@@ -339,6 +352,8 @@ def 聴牌ですか(tiles: list[麻雀牌],) -> tuple[bool, list[麻雀牌]]:
             if 大三元(仮手牌):
                 待ち牌.append(麻雀牌(何者, 数字, False))
             if 国士無双(仮手牌):
+                待ち牌.append(麻雀牌(何者, 数字, False))
+            if 緑一色(仮手牌):
                 待ち牌.append(麻雀牌(何者, 数字, False))
         if 七対子(仮手牌):
             待ち牌.append(麻雀牌(何者, 数字, False))
@@ -443,6 +458,8 @@ def 純全帯么九(tiles: list[麻雀牌]) -> bool:
 def 混一色(tiles: list[麻雀牌]) -> bool:
     if all("字牌" in t.固有状態 for t in tiles):
         return False
+    if all("数牌" in t.固有状態 for t in tiles):
+        return False
     temp_tiles = [t.何者 for t in tiles if "数牌" in t.固有状態]
     temp_tiles = list(set(temp_tiles))
     if len(temp_tiles) != 1:
@@ -453,7 +470,9 @@ def 混一色(tiles: list[麻雀牌]) -> bool:
 def 清一色(tiles: list[麻雀牌]) -> bool:
     if any("字牌" in t.固有状態 for t in tiles):
         return False
-    if not 混一色(tiles):
+    temp_tiles = [t.何者 for t in tiles]
+    temp_tiles = list(set(temp_tiles))
+    if len(temp_tiles) != 1:
         return False
     return True
 
@@ -501,9 +520,9 @@ def 三暗刻(tiles: list[麻雀牌]) -> bool:
     counter = Counter((t.何者, t.その上の数字) for t in tiles)
     c = 0
     for key, cnt in counter.items():
-        if cnt == 3:
+        if cnt >= 3:
             c += 1
-    if c >= 3:
+    if c == 3:
         return True
     return False
 
@@ -515,11 +534,24 @@ def 四暗刻(tiles: list[麻雀牌]) -> bool:
     counter = Counter((t.何者, t.その上の数字) for t in tiles)
     c = 0
     for key, cnt in counter.items():
-        if cnt == 3:
+        if cnt >= 3:
             c += 1
-    if c >= 4:
+    if c == 4:
         return True
     return False
+
+
+# 手牌 = [
+#     麻雀牌("西風", 0, False), 麻雀牌("西風", 0, False), 麻雀牌("西風", 0, False), 
+#     麻雀牌("索子", 6, False), 麻雀牌("萬子", 6, False), 麻雀牌("萬子", 6, False),  
+#     麻雀牌("索子", 6, False), 麻雀牌("索子", 6, False), 麻雀牌("索子", 6, False),  
+#     麻雀牌("筒子", 6, False), 麻雀牌("筒子", 6, False), 麻雀牌("筒子", 6, False), 
+ 
+#     麻雀牌("白ちゃん", 0, False),
+#     麻雀牌("白ちゃん", 0, False)           
+# ]
+# print(三暗刻(手牌))
+# print(四暗刻(手牌))
 
 
 def 三色同刻(tiles: list[麻雀牌]) -> bool:
@@ -535,13 +567,6 @@ def 三色同刻(tiles: list[麻雀牌]) -> bool:
     return False
 
 
-def 四喜和(tiles: list[麻雀牌]) -> bool:
-    counter = Counter((t.何者, t.その上の数字) for t in tiles if t.何者 in ["東風", "南風", "西風", "北風"])
-    if len(counter) == 4:
-        return True
-    return False
-
-
 # 手牌 = [
 #     麻雀牌("西風", 0, False), 麻雀牌("西風", 0, False), 麻雀牌("西風", 0, False), 
 #     麻雀牌("萬子", 6, False), 麻雀牌("萬子", 6, False), 麻雀牌("萬子", 6, False),  
@@ -554,16 +579,87 @@ def 四喜和(tiles: list[麻雀牌]) -> bool:
 # print(三色同刻(手牌))
 
 
+def 三連刻(tiles: list[麻雀牌]) -> bool:
+    """
+    集齊三組順數字而同花色的刻子的牌型。例: 萬子333, 萬子444, 萬子555
+    """
+    counter = Counter((t.何者, t.その上の数字) for t in tiles)
+    # For each suit, check if there are three consecutive numbers with 3+ tiles each
+    suits = ("萬子", "筒子", "索子")
+    for suit in suits:
+        for start_num in range(1, 8):  # We need 3 consecutive numbers, so we can start from 1 to 7
+            if all(counter.get((suit, start_num + i), 0) >= 3 for i in range(3)):
+                return True
+    return False
+
+# 手牌 = [
+#     麻雀牌("西風", 0, False), 麻雀牌("西風", 0, False), 麻雀牌("西風", 0, False), 
+#     麻雀牌("萬子", 6, False), 麻雀牌("萬子", 6, False), 麻雀牌("萬子", 6, False),  
+#     麻雀牌("萬子", 7, False), 麻雀牌("萬子", 7, False), 麻雀牌("萬子", 7, False),  
+#     麻雀牌("萬子", 8, False), 麻雀牌("萬子", 8, False), 麻雀牌("萬子", 8, False), 
+ 
+#     麻雀牌("白ちゃん", 0, False),
+#     麻雀牌("白ちゃん", 0, False)           
+# ]
+# print(三連刻(手牌))
+
+
+def 四連刻(tiles: list[麻雀牌]) -> bool:
+    counter = Counter((t.何者, t.その上の数字) for t in tiles)
+    suits = ("萬子", "筒子", "索子")
+    for suit in suits:
+        for start_num in range(1, 7):  # We need 4 consecutive numbers, so we can start from 1 to 6
+            if all(counter.get((suit, start_num + i), 0) >= 3 for i in range(4)):
+                return True
+    return False
+
+
+def 小三風(tiles: list[麻雀牌]) -> bool:
+    counter = Counter((t.何者, t.その上の数字) for t in tiles if t.何者 in ["東風", "南風", "西風", "北風"])
+    if len(counter) == 3:
+        if any(
+            cnt == 2 for key, cnt in counter.items()
+        ):
+            return True
+    return False
+
+
+def 三風刻(tiles: list[麻雀牌]) -> bool:
+    counter = Counter((t.何者, t.その上の数字) for t in tiles if t.何者 in ["東風", "南風", "西風", "北風"])
+    if len(counter) == 3:
+        if all(
+            cnt >= 3 for key, cnt in counter.items()
+        ):
+            return True
+    return False
+
+
+# 手牌 = [
+#     麻雀牌("萬子", 1, False), 麻雀牌("萬子", 2, False), 麻雀牌("萬子", 3, False),  
+#     麻雀牌("索子", 1, False), 麻雀牌("索子", 2, False), 麻雀牌("索子", 2, False),  
+#     麻雀牌("南風", 0, False), 麻雀牌("南風", 0, False), 麻雀牌("南風", 0, False), 
+#     麻雀牌("西風", 0, False), 麻雀牌("西風", 0, False), 麻雀牌("西風", 0, False),  
+#     麻雀牌("東風", 0, False),
+#     麻雀牌("東風", 0, False) 
+# ]
+# 手牌.sort(key=lambda x: (x.sort_order, x.その上の数字))
+# for t in 手牌:
+#     print(t.何者, t.その上の数字, t.副露)
+# print(小三風(手牌))
+# print(三風刻(手牌))
+
+
+def 四喜和(tiles: list[麻雀牌]) -> bool:
+    counter = Counter((t.何者, t.その上の数字) for t in tiles if t.何者 in ["東風", "南風", "西風", "北風"])
+    if len(counter) == 4:
+        return True
+    return False
+
+
 def 三色同順(tiles: list[麻雀牌]) -> bool:
-    """
-    1. 手牌は和了形（四面子一雀頭）である  
-    2. 同じ数値 (n, n+1, n+2) で構成される順子が、萬子・筒子・索子の 3 色すべてに 1 組ずつ存在する
-    """
     suits = ("萬子", "筒子", "索子")
     counter = Counter((t.何者, t.その上の数字) for t in tiles)
-    # 1〜7 から始まる順子まで調査（7‑8‑9 が最大）
     for n in range(1, 8):
-        # 各色に n,n+1,n+2 が 1 枚ずつ揃っているか
         if all(
             counter[(suit, n)] >= 1 and
             counter[(suit, n + 1)] >= 1 and
@@ -584,6 +680,81 @@ def 一気通貫(tiles: list[麻雀牌]) -> bool:
         if all(counter[(suit, n)] >= 1 for n in range(1, 10)):
             return True
     return False
+
+
+
+def 三色通貫(tiles: list[麻雀牌]) -> bool:
+    """
+    由萬筒索三門三組順子組成的一氣通貫的牌型。Valid as long as:
+    1. 123456789 all exists in tiles
+    2. "萬子", "筒子", "索子" must all exist in tiles
+    3. The full seq is [(123), (456), (789)]. A suit claim one of them, then another claim another, then another claim the last one. 
+    """
+    suits = ("萬子", "筒子", "索子")
+    counter = Counter((t.何者, t.その上の数字) for t in tiles)
+    
+    # Check if all suits have at least one tile
+    if not all(any(counter[(suit, n)] >= 1 for n in range(1, 10)) for suit in suits):
+        return False
+    
+    # Check if all numbers 1-9 exist in the tiles
+    if not all(any(counter[(suit, n)] >= 1 for suit in suits) for n in range(1, 10)):
+        return False
+    
+    # Define the three sequence groups
+    sequences = [(1, 2, 3), (4, 5, 6), (7, 8, 9)]
+    
+    # For rule 3: Check if we can assign one sequence to each 萬子
+    # Then remove that sequence, check if we can assign 1 to 筒子,
+    # then, check if we can assign the last one to 索子.
+    # We also need to consider there could be mulitiple seq to assign to each suit, try all of them.
+    # Check if each suit can claim at least one complete sequence
+    suit_sequences = {}
+    for suit in suits:
+        suit_sequences[suit] = []
+        for seq in sequences:
+            # Check if this suit has all numbers in this sequence
+            if all(counter.get((suit, n), 0) >= 1 for n in seq):
+                suit_sequences[suit].append(seq)
+    
+    # For each possible ordering of the sequences
+    for seq_ordering in permutations(sequences):
+        # Try to assign sequences to suits in this order
+        assignment_works = True
+        used_suits = set()
+        
+        for seq in seq_ordering:
+            # Find a suit that can claim this sequence and hasn't been used
+            assigned = False
+            for suit in suits:
+                if suit not in used_suits and seq in suit_sequences[suit]:
+                    used_suits.add(suit)
+                    assigned = True
+                    break
+            
+            if not assigned:
+                assignment_works = False
+                break
+        
+        # If we found a valid assignment, return True
+        if assignment_works and len(used_suits) == len(suits):
+            return True
+
+    return False
+
+
+# 手牌 = [
+#     麻雀牌("萬子", 1, False), 麻雀牌("萬子", 2, False), 麻雀牌("萬子", 3, False),  
+#     麻雀牌("索子", 1, False), 麻雀牌("索子", 2, False), 麻雀牌("索子", 3, False),  
+#     麻雀牌("萬子", 4, False), 麻雀牌("萬子", 5, False), 麻雀牌("萬子", 6, False), 
+#     麻雀牌("筒子", 7, False), 麻雀牌("筒子", 8, False), 麻雀牌("筒子", 9, False),  
+#     麻雀牌("索子", 2, False),
+#     麻雀牌("索子", 2, False) 
+# ]
+# 手牌.sort(key=lambda x: (x.sort_order, x.その上の数字))
+# for t in 手牌:
+#     print(t.何者, t.その上の数字, t.副露)
+# print(三色通貫(手牌))
 
 
 def 五門斉(tiles: list[麻雀牌]) -> bool:
@@ -666,23 +837,6 @@ def 緑一色(tiles: list[麻雀牌]) -> bool:
 # print(国士無双(国士無双手牌))
 
 
-# 手牌 = [
-#     麻雀牌("萬子", 7, False), 麻雀牌("萬子", 7, False), 麻雀牌("萬子", 7, False),  
-#     麻雀牌("索子", 1, False), 麻雀牌("索子", 1, False), 麻雀牌("索子", 1, False),  
-#     麻雀牌("筒子", 8, False), 麻雀牌("筒子", 8, False), 麻雀牌("筒子", 8, False), 
-#     麻雀牌("西風", 0, False), 麻雀牌("西風", 0, False), 麻雀牌("西風", 0, False),  
-#     麻雀牌("白ちゃん", 0, False),
-#     麻雀牌("白ちゃん", 0, False)           
-# ]
-# print(対々和(手牌))
-# a, b = 聴牌ですか(手牌)
-# print(a)
-# for _ in b:
-#     print(f"聴牌: {len(b)}")
-#     print(_.何者, _.その上の数字)
-# full_yama = 山を作成する()
-# assert len(full_yama) == 139
-
 # ==========================
 # 点数計算
 # ==========================
@@ -698,6 +852,7 @@ def 点数計算(tiles: list[麻雀牌], seat: int) -> tuple[int, list[str], boo
     win = False
     chanta = False
     clearwater = False
+    fourkezu = False
 
     if seat == 0 and 東(tiles):
         score += 1000
@@ -752,8 +907,7 @@ def 点数計算(tiles: list[麻雀牌], seat: int) -> tuple[int, list[str], boo
             score += 6000
             yaku.append("清一色")
             win = True
-            clearwater = True
-        if 混一色(tiles) and not clearwater:
+        if 混一色(tiles):
             score += 3000
             yaku.append("混一色")
             win = True
@@ -765,6 +919,14 @@ def 点数計算(tiles: list[麻雀牌], seat: int) -> tuple[int, list[str], boo
             score += 6000
             yaku.append("三暗刻")
             win = True
+        if 小三風(tiles):
+            score += 3000
+            yaku.append("小三風")
+            win = True
+        if 三風刻(tiles):
+            score += 6000
+            yaku.append("三風刻")
+            win = True
         if 三色同順(tiles):
             score += 3000
             yaku.append("三色同順")
@@ -772,6 +934,10 @@ def 点数計算(tiles: list[麻雀牌], seat: int) -> tuple[int, list[str], boo
         if 一気通貫(tiles):
             score += 3000
             yaku.append("一気通貫")
+            win = True
+        if 三色通貫(tiles):
+            score += 3000
+            yaku.append("三色通貫")
             win = True
         if 小三元(tiles):
             score += 6000
@@ -792,6 +958,15 @@ def 点数計算(tiles: list[麻雀牌], seat: int) -> tuple[int, list[str], boo
         if 四暗刻(tiles):
             score += 32000
             yaku.append("四暗刻")
+            win = True
+        if 四連刻(tiles):
+            score += 32000
+            yaku.append("四連刻")
+            win = True
+            fourkezu = True
+        if not fourkezu and 三連刻(tiles):
+            score += 3000
+            yaku.append("三連刻")
             win = True
         if 三色同刻(tiles):
             score += 32000
@@ -822,8 +997,7 @@ def 点数計算(tiles: list[麻雀牌], seat: int) -> tuple[int, list[str], boo
         if 清一色(tiles):
             score += 6000
             yaku.append("清一色")
-            clearwater = True
-        if 混一色(tiles) and not clearwater:
+        if 混一色(tiles):
             score += 3000
             yaku.append("混一色")
         if 混老頭(tiles):
