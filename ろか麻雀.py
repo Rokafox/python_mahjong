@@ -342,8 +342,14 @@ def 混全帯么九(tiles: list[麻雀牌]) -> bool:
         if key[1] == 2:
             if counter[(key[0], 3)] != cnt:
                 return False
+        if key[1] == 3:
+            if counter[(key[0], 2)] != cnt:
+                return False
         if key[1] == 8:
             if counter[(key[0], 7)] != cnt:
+                return False
+        if key[1] == 7:
+            if counter[(key[0], 8)] != cnt:
                 return False
     return True
 
@@ -362,8 +368,14 @@ def 純全帯么九(tiles: list[麻雀牌]) -> bool:
         if key[1] == 2:
             if counter[(key[0], 3)] != cnt:
                 return False
+        if key[1] == 3:
+            if counter[(key[0], 2)] != cnt:
+                return False
         if key[1] == 8:
             if counter[(key[0], 7)] != cnt:
+                return False
+        if key[1] == 7:
+            if counter[(key[0], 8)] != cnt:
                 return False
     return True
 

@@ -22,6 +22,7 @@ class MahjongEnvironment:
         self.agent_tile_count = 13
         self.sandbag_tile_count = 13 # slightly reduced difficulty
         self.reset()
+        self.add_tenpai_score = True
 
     # --------------------------------------------------
     # ゲーム管理
@@ -161,15 +162,16 @@ class MahjongEnvironment:
 
     def _agent_extra_reward(self, 手牌: list[麻雀牌]) -> int:
         reward_extra = 0
-        # 聴牌の場合、大量の報酬を与える
-        聴牌, 何の牌 = 聴牌ですか(self.手牌, self.seat)
-        if 聴牌:
-            reward_extra += 800
-            # print(f"聴牌:")
-            # for p in 何の牌:
-            #     print(f"{p.何者} {p.その上の数字}")
-            self.total_tennpai += len(何の牌)
-            reward_extra += len(何の牌) * 100
+        if self.add_tenpai_score:
+            # 聴牌の場合、大量の報酬を与える
+            聴牌, 何の牌 = 聴牌ですか(self.手牌, self.seat)
+            if 聴牌:
+                reward_extra += 800
+                # print(f"聴牌:")
+                # for p in 何の牌:
+                #     print(f"{p.何者} {p.その上の数字}")
+                self.total_tennpai += len(何の牌)
+                reward_extra += len(何の牌) * 100
         
         # 面子スコア: 13 枚の手牌から完成面子（順子・刻子）の最大数を求めて
         # 0面子→0, 1面子→1, 2面子→2, 3面子→4, 4面子→8を返す。雀頭は数えない。
@@ -233,7 +235,8 @@ class MahjongEnvironment:
         assert len(valid_actions) > 0
         action: int
         action, full_dict = actor.act(self._get_state(), valid_actions)
-        reward -= 2  # base penalty
+        if self.add_tenpai_score:
+            reward -= 2  # base penalty
         tile_type = self._index_to_tile_type(action)
         # print(tile_type) # ('筒子', 5)
         target_tile = None
@@ -618,8 +621,8 @@ class DQNAgent:
 
         self.gamma = 0.99
         self.epsilon = 1.0
-        self.epsilon_min = 0.04
-        self.epsilon_decay = 0.995
+        self.epsilon_min = 0.1
+        self.epsilon_decay = 0.998
         self.learning_rate = 1e-3
 
         # Use the Mahjong-specific model instead of the sequential model
@@ -760,7 +763,7 @@ def train_agent(episodes: int = 1200000, pretrained: str | None = None,
     if pretrained and os.path.exists(pretrained):
         agent.model.load_state_dict(torch.load(pretrained, map_location=device))
         agent.update_target_model()
-        agent.epsilon = 0.02
+        agent.epsilon = 0.01
         print(f"[INFO] 既存モデル {pretrained} をロードしました。")
 
     batch_size = 64
@@ -798,7 +801,84 @@ def train_agent(episodes: int = 1200000, pretrained: str | None = None,
     return agent
 
 
+def test_agent(episodes: int, model_path: str, 
+               device: str = "cpu", log_save_path: str = None) -> None:
+    env = MahjongEnvironment()
+    env.add_tenpai_score = False
+    agent = DQNAgent(242, 34 + 3, device=device)
+    
+    # Load pre-trained model
+    if os.path.exists(model_path):
+        agent.model.load_state_dict(torch.load(model_path, map_location=device))
+        print(f"[INFO] テストモデル {model_path} をロードしました。")
+    else:
+        raise FileNotFoundError(f"Model file {model_path} not found.")
+    
+    # Set epsilon to 0 for deterministic policy (no exploration)
+    agent.epsilon = 0
+    
+    # Create log file if specified
+    if log_save_path:
+        if os.path.exists(log_save_path):
+            raise FileExistsError(f"Log file {log_save_path} already exists. Please choose a different name.")
+        with open(log_save_path, "a") as f:
+            f.write("Episode,Seat,Score,Turn,Yaku,MZ_Score,TZ_Score,Tenpai,HandComplete\n")
+    
+    # Statistics tracking
+    tenpai_count = 0
+    agari = 0
+    total_score = 0
+    
+    for ep in range(episodes):
+        state = env.reset()
+        ep_reward = 0
+        
+        while True:
+            # Get action from agent but don't train (no memorize or replay)
+            next_state, reward, done, info, action = env.step(agent, env.agent_after_pon)
+            state = next_state
+            ep_reward += reward
+            
+            if done:
+                # Convert seat number to compass direction
+                seat_names = ["East", "South", "West", "North"]
+                envseat = seat_names[env.seat]
+                
+                # Track statistics
+                total_score += info['score']
+                # if 'tenpai' in info and info['tenpai'] > 0:
+                #     tenpai_count += 1
+                if 'completeyaku' in info and info['completeyaku']:
+                    agari += 1
+                
+                # Log results
+                if log_save_path:
+                    with open(log_save_path, "a") as f:
+                        f.write(f"{ep+1},{envseat},{info['score']},{info['turn']},"
+                                f"{' '.join(str(x) for x in info['completeyaku'])},"
+                                f"{info['mz_score']},{info['tuiz_score']},"
+                                f"{info['tenpai']},{info['hand_when_complete']}\n")
+                
+                # Print progress
+                if (ep + 1) % 500 == 0:
+                    print(f"[TEST] Episode {ep+1}/{episodes} completed. "
+                          f"Avg score: {total_score/(ep+1):.2f}, "
+                        #   f"Tenpai rate: {tenpai_count/(ep+1)*100:.2f}%, "
+                          f"Agari rate: {agari/(ep+1)*100:.2f}%")
+                break
+    
+    # Final statistics
+    print(f"\n[TEST COMPLETE] Total episodes: {episodes}")
+    print(f"Average score: {total_score/episodes:.2f}")
+    # print(f"Tenpai rate: {tenpai_count/episodes*100:.3f}%")
+    print(f"Agari rate: {agari/episodes*100:.3f}%")
+
+
+
+
 if __name__ == "__main__":
-    trained_agent = train_agent(pretrained="Brett.pth", device="cuda",
-                                log_save_path="./log/training_logv6.csv")
-    torch.save(trained_agent.model.state_dict(), "modelv6.pth")
+    # trained_agent = train_agent(pretrained="Brett.pth", device="cuda",
+    #                             log_save_path="./log/training_logv6.csv")
+    # torch.save(trained_agent.model.state_dict(), "modelv6.pth")
+    test_agent(episodes=5000, model_path="Brett.pth", device="cuda",
+               log_save_path="./log/testing_logv6.csv")
