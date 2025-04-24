@@ -6,7 +6,7 @@ import pandas as pd
 # Set font to Noto Sans CJK
 rcParams['font.family'] = 'Noto Sans CJK JP'
 
-file_path = 'log/testing_logv6.csv'
+file_path = 'log/testing_Kurtv2.csv'
 df = pd.read_csv(file_path)
 
 # Combine all tile data into a single list

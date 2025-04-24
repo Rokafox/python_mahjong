@@ -1,6 +1,6 @@
 from collections import Counter
 from copy import deepcopy
-from itertools import permutations
+from itertools import combinations, permutations
 import random
 
 class 麻雀牌:
@@ -15,6 +15,7 @@ class 麻雀牌:
         self.marked_a: bool = False # mark the tile for temporary use
         self.marked_b: bool = False
         self.marked_c: bool = False
+        self.marked_as_removed: bool = False
         if not self.固有状態追加と検証():
             raise Exception(f"不正な牌: {何者}, {その上の数字}")
         self.sort_order = self.set_sort_order()
@@ -202,7 +203,7 @@ def 対子スコア(tiles: list[麻雀牌]) -> int:
     return [0, 1, 2, 4, 8, 16, 32][pairs_count]
 
 
-def 上がり形(tiles):
+def 上がり形(tiles, process_marked_as_removed=False) -> bool:
     """
     Check if the given tiles can form a valid winning hand.
     A winning hand consists of sets (面子) and 1 pair (雀頭).
@@ -213,7 +214,10 @@ def 上がり形(tiles):
         bool: True if the tiles can form a valid winning hand, False otherwise
     """
     # Remove exposed tiles
-    remaining_tiles = [t for t in tiles if not t.副露]
+    if process_marked_as_removed:
+        remaining_tiles = [t for t in tiles if not t.marked_as_removed]
+    else:
+        remaining_tiles = [t for t in tiles if not t.副露]
     # Check if we have at least 14 tiles (including exposed)
     if len(tiles) < 14:
         return False
@@ -340,16 +344,16 @@ def 混全帯么九(tiles: list[麻雀牌]) -> bool:
     # 2. If there is an 2, the number count of 3 of the same suit must be the same, the same for 8 and 7
     for key, cnt in counter.items():
         if key[1] == 2:
-            if counter[(key[0], 3)] != cnt:
+            if counter[(key[0], 3)] != cnt or counter[(key[0], 1)] < cnt:
                 return False
         if key[1] == 3:
-            if counter[(key[0], 2)] != cnt:
+            if counter[(key[0], 2)] != cnt or counter[(key[0], 1)] < cnt:
                 return False
         if key[1] == 8:
-            if counter[(key[0], 7)] != cnt:
+            if counter[(key[0], 7)] != cnt or counter[(key[0], 9)] < cnt:
                 return False
         if key[1] == 7:
-            if counter[(key[0], 8)] != cnt:
+            if counter[(key[0], 8)] != cnt or counter[(key[0], 9)] < cnt:
                 return False
     return True
 
@@ -366,16 +370,16 @@ def 純全帯么九(tiles: list[麻雀牌]) -> bool:
     # 2. If there is an 2, the number count of 3 of the same suit must be the same, the same for 8 and 7
     for key, cnt in counter.items():
         if key[1] == 2:
-            if counter[(key[0], 3)] != cnt:
+            if counter[(key[0], 3)] != cnt or counter[(key[0], 1)] < cnt:
                 return False
         if key[1] == 3:
-            if counter[(key[0], 2)] != cnt:
+            if counter[(key[0], 2)] != cnt or counter[(key[0], 1)] < cnt:
                 return False
         if key[1] == 8:
-            if counter[(key[0], 7)] != cnt:
+            if counter[(key[0], 7)] != cnt or counter[(key[0], 9)] < cnt:
                 return False
         if key[1] == 7:
-            if counter[(key[0], 8)] != cnt:
+            if counter[(key[0], 8)] != cnt or counter[(key[0], 9)] < cnt:
                 return False
     return True
 
@@ -385,8 +389,8 @@ def 純全帯么九(tiles: list[麻雀牌]) -> bool:
 #     麻雀牌("萬子", 7, False), 麻雀牌("萬子", 8, False), 麻雀牌("萬子", 9, False),  
 #     麻雀牌("索子", 9, False), 麻雀牌("索子", 9, False), 麻雀牌("索子", 9, False),  
 #     麻雀牌("筒子", 7, False), 麻雀牌("筒子", 8, False), 麻雀牌("筒子", 9, False), 
-#     麻雀牌("萬子", 9, False),
-#     麻雀牌("萬子", 9, False)           
+#     麻雀牌("筒子", 9, False),
+#     麻雀牌("筒子", 9, False)           
 # ]
 # print(純全帯么九(手牌))
 
@@ -450,92 +454,167 @@ def 七対子(tiles: list[麻雀牌]) -> bool:
 
 
 def 三暗刻(tiles: list[麻雀牌]) -> bool:
+    """
+    condition 2: if the checked tiles is marked as removed, the tiles can still form 上がり形.
+    """
     for t in tiles:
         if t.副露:
             return False
     counter = Counter((t.何者, t.その上の数字) for t in tiles)
-    c = 0
+    triplets = []
+    
+    # Find all triplets (condition 1 part 2)
     for key, cnt in counter.items():
         if cnt >= 3:
-            c += 1
-    if c == 3:
-        return True
+            triplets.append(key)
+            
+    if len(triplets) >= 3:
+        # Condition 1 is met - found at least 3 concealed triplets
+        # For condition 2, try all combinations of 3 triplets
+        for three_triplets in combinations(triplets, 3):
+            temp_tiles = deepcopy(tiles)
+            # Mark the triplets as removed
+            for suit, number in three_triplets:
+                count = 0
+                for t in temp_tiles:
+                    if t.何者 == suit and t.その上の数字 == number and not t.marked_as_removed:
+                        t.marked_as_removed = True
+                        count += 1
+                        if count == 3:  # Mark exactly 3 tiles of each triplet
+                            break
+            
+            # Check if remaining tiles can form a valid hand
+            if 上がり形(temp_tiles, process_marked_as_removed=True):
+                return True
     return False
 
 
 def 四暗刻(tiles: list[麻雀牌]) -> bool:
+    """
+    condition 2: if the checked tiles is marked as removed, the tiles can still form 上がり形.
+    """
     for t in tiles:
         if t.副露:
             return False
     counter = Counter((t.何者, t.その上の数字) for t in tiles)
-    c = 0
+    triplets = []
+    
+    # Find all triplets (condition 1 part 2)
     for key, cnt in counter.items():
         if cnt >= 3:
-            c += 1
-    if c == 4:
-        return True
+            triplets.append(key)
+
+    if len(triplets) >= 4:
+        # Condition 1 is met - found at least 4 concealed triplets
+        # For condition 2, try all combinations of 4 triplets
+        for four_triplets in combinations(triplets, 4):
+            temp_tiles = deepcopy(tiles)
+            # Mark the triplets as removed
+            for suit, number in four_triplets:
+                count = 0
+                for t in temp_tiles:
+                    if t.何者 == suit and t.その上の数字 == number and not t.marked_as_removed:
+                        t.marked_as_removed = True
+                        count += 1
+                        if count == 3:  # Mark exactly 3 tiles of each triplet
+                            break
+            # Check if remaining tiles can form a valid hand
+            if 上がり形(temp_tiles, process_marked_as_removed=True):
+                return True
     return False
 
 
 # 手牌 = [
-#     麻雀牌("西風", 0, False), 麻雀牌("西風", 0, False), 麻雀牌("西風", 0, False), 
-#     麻雀牌("索子", 6, False), 麻雀牌("萬子", 6, False), 麻雀牌("萬子", 6, False),  
+#     麻雀牌("萬子", 4, False), 麻雀牌("萬子", 5, False), 麻雀牌("萬子", 6, False), 
+#     麻雀牌("萬子", 1, False), 麻雀牌("萬子", 2, False), 麻雀牌("萬子", 3, False),  
 #     麻雀牌("索子", 6, False), 麻雀牌("索子", 6, False), 麻雀牌("索子", 6, False),  
 #     麻雀牌("筒子", 6, False), 麻雀牌("筒子", 6, False), 麻雀牌("筒子", 6, False), 
  
-#     麻雀牌("白ちゃん", 0, False),
-#     麻雀牌("白ちゃん", 0, False)           
+#     麻雀牌("萬子", 6, False),
+#     麻雀牌("萬子", 6, False)           
 # ]
 # print(三暗刻(手牌))
 # print(四暗刻(手牌))
 
 
 def 三色同刻(tiles: list[麻雀牌]) -> bool:
+    """
+    2. condition 2: if the checked tiles is marked as removed, the tiles can still form 上がり形.
+    """
     counter = Counter((t.何者, t.その上の数字) for t in tiles)
     for key, cnt in counter.items():
         if cnt >= 3:
-            # 3 色の牌が揃っているか
             if all(
                 counter[(suit, key[1])] >= 3
                 for suit in ("萬子", "筒子", "索子")
             ):
-                return True
+                # Condition 1 is met - found triplets of the same number in all three suits
+                # For condition 2, mark the triplets as removed
+                temp_tiles = deepcopy(tiles)
+                # Mark exactly 3 tiles of each suit with the same number as removed
+                number = key[1]
+                for suit in ("萬子", "筒子", "索子"):
+                    count = 0
+                    for t in temp_tiles:
+                        if t.何者 == suit and t.その上の数字 == number and not t.marked_as_removed:
+                            t.marked_as_removed = True
+                            count += 1
+                            if count == 3:  # Mark exactly 3 tiles of each suit
+                                break
+                # Check if remaining tiles can form a valid hand
+                if 上がり形(temp_tiles, process_marked_as_removed=True):
+                    return True
     return False
 
 
 # 手牌 = [
-#     麻雀牌("西風", 0, False), 麻雀牌("西風", 0, False), 麻雀牌("西風", 0, False), 
-#     麻雀牌("萬子", 6, False), 麻雀牌("萬子", 6, False), 麻雀牌("萬子", 6, False),  
+#     麻雀牌("萬子", 4, False), 麻雀牌("萬子", 5, False), 麻雀牌("萬子", 6, False), 
+#     麻雀牌("萬子", 1, False), 麻雀牌("萬子", 1, False), 麻雀牌("萬子", 1, False),  
 #     麻雀牌("索子", 6, False), 麻雀牌("索子", 6, False), 麻雀牌("索子", 6, False),  
 #     麻雀牌("筒子", 6, False), 麻雀牌("筒子", 6, False), 麻雀牌("筒子", 6, False), 
  
-#     麻雀牌("白ちゃん", 0, False),
-#     麻雀牌("白ちゃん", 0, False)           
+#     麻雀牌("萬子", 6, False),
+#     麻雀牌("萬子", 6, False)           
 # ]
 # print(三色同刻(手牌))
 
 
 def 三連刻(tiles: list[麻雀牌]) -> bool:
     """
-    集齊三組順數字而同花色的刻子的牌型。例: 萬子333, 萬子444, 萬子555
+    1. example :萬子333, 萬子444, 萬子555
+    2. condition 2: if the checked tiles is marked as removed, the tiles can still form 上がり形.
     """
     counter = Counter((t.何者, t.その上の数字) for t in tiles)
-    # For each suit, check if there are three consecutive numbers with 3+ tiles each
     suits = ("萬子", "筒子", "索子")
     for suit in suits:
         for start_num in range(1, 8):  # We need 3 consecutive numbers, so we can start from 1 to 7
             if all(counter.get((suit, start_num + i), 0) >= 3 for i in range(3)):
-                return True
+                # Condition 1 is met - found 3 consecutive triplets in the same suit
+                # For condition 2, mark the triplets as removed
+                temp_tiles = deepcopy(tiles)
+                # Mark exactly 3 of each number in the triplet sequence as removed
+                for i in range(3):
+                    number = start_num + i
+                    count = 0
+                    for t in temp_tiles:
+                        if t.何者 == suit and t.その上の数字 == number and not t.marked_as_removed:
+                            t.marked_as_removed = True
+                            count += 1
+                            if count == 3:  # Mark exactly 3 tiles of each number
+                                break
+                # Check if remaining tiles can form a valid hand
+                if 上がり形(temp_tiles, process_marked_as_removed=True):
+                    return True
     return False
 
 # 手牌 = [
 #     麻雀牌("西風", 0, False), 麻雀牌("西風", 0, False), 麻雀牌("西風", 0, False), 
-#     麻雀牌("萬子", 6, False), 麻雀牌("萬子", 6, False), 麻雀牌("萬子", 6, False),  
+#     麻雀牌("萬子", 4, False), 麻雀牌("萬子", 5, False), 麻雀牌("萬子", 6, False),  
 #     麻雀牌("萬子", 7, False), 麻雀牌("萬子", 7, False), 麻雀牌("萬子", 7, False),  
 #     麻雀牌("萬子", 8, False), 麻雀牌("萬子", 8, False), 麻雀牌("萬子", 8, False), 
  
-#     麻雀牌("白ちゃん", 0, False),
-#     麻雀牌("白ちゃん", 0, False)           
+#     麻雀牌("萬子", 6, False),
+#     麻雀牌("萬子", 6, False)           
 # ]
 # print(三連刻(手牌))
 
@@ -546,8 +625,33 @@ def 四連刻(tiles: list[麻雀牌]) -> bool:
     for suit in suits:
         for start_num in range(1, 7):  # We need 4 consecutive numbers, so we can start from 1 to 6
             if all(counter.get((suit, start_num + i), 0) >= 3 for i in range(4)):
-                return True
+                # Condition 1 is met - found 3 consecutive triplets in the same suit
+                # For condition 2, mark the triplets as removed
+                temp_tiles = deepcopy(tiles)
+                for i in range(4):
+                    number = start_num + i
+                    count = 0
+                    for t in temp_tiles:
+                        if t.何者 == suit and t.その上の数字 == number and not t.marked_as_removed:
+                            t.marked_as_removed = True
+                            count += 1
+                            if count == 3:  # Mark exactly 3 tiles of each number
+                                break
+                if 上がり形(temp_tiles, process_marked_as_removed=True):
+                    return True
     return False
+
+
+# 手牌 = [
+#     麻雀牌("萬子", 9, False), 麻雀牌("萬子", 9, False), 麻雀牌("萬子", 9, False), 
+#     麻雀牌("萬子", 6, False), 麻雀牌("萬子", 6, False), 麻雀牌("萬子", 6, False),  
+#     麻雀牌("萬子", 7, False), 麻雀牌("萬子", 7, False), 麻雀牌("萬子", 7, False),  
+#     麻雀牌("萬子", 8, False), 麻雀牌("萬子", 8, False), 麻雀牌("萬子", 8, False), 
+ 
+#     麻雀牌("萬子", 2, False),
+#     麻雀牌("萬子", 2, False)           
+# ]
+# print(四連刻(手牌))
 
 
 def 小三風(tiles: list[麻雀牌]) -> bool:
@@ -593,6 +697,10 @@ def 四喜和(tiles: list[麻雀牌]) -> bool:
 
 
 def 三色同順(tiles: list[麻雀牌]) -> bool:
+    """
+    condition 1: have n, n+1, n+2 in the 3 suit for same n
+    condition 2: if the checked tiles is marked as removed, the tiles can still form 上がり形.
+    """
     suits = ("萬子", "筒子", "索子")
     counter = Counter((t.何者, t.その上の数字) for t in tiles)
     for n in range(1, 8):
@@ -602,20 +710,79 @@ def 三色同順(tiles: list[麻雀牌]) -> bool:
             counter[(suit, n + 2)] >= 1
             for suit in suits
         ):
-            return True
+            # Condition 1 is met
+            # For condition 2, mark the triplets in all three suits as removed
+            temp_tiles = deepcopy(tiles)
+            # Mark one triplet from each suit as removed
+            for suit in suits:
+                for i in range(n, n + 3):
+                    for t in temp_tiles:
+                        if t.何者 == suit and t.その上の数字 == i and not t.marked_as_removed:
+                            t.marked_as_removed = True
+                            break
+            # Check if remaining tiles can form a valid hand
+            condition2 = 上がり形(temp_tiles, process_marked_as_removed=True)
+            if condition2:
+                return True
     return False
+
+
+# 手牌 = [
+#     麻雀牌("萬子", 1, False), 麻雀牌("萬子", 2, False), 麻雀牌("萬子", 3, False),  
+#     麻雀牌("索子", 1, False), 麻雀牌("索子", 2, False), 麻雀牌("索子", 3, False),  
+#     麻雀牌("萬子", 4, False), 麻雀牌("萬子", 5, False), 麻雀牌("萬子", 6, False), 
+#     麻雀牌("筒子", 2, False), 麻雀牌("筒子", 4, False), 麻雀牌("筒子", 3, False),  
+#     麻雀牌("筒子", 1, False),
+#     麻雀牌("筒子", 1, False) 
+# ]
+# 手牌.sort(key=lambda x: (x.sort_order, x.その上の数字))
+# print(三色同順(手牌))
+
 
 
 def 一気通貫(tiles: list[麻雀牌]) -> bool:
     """
-    同種の数牌で123・456・789と揃えると成立する。
+    Condition 1 : have 123456789 of the same suit
+    Condition 2 : If 123456789 of the same suit is temperarily marked as removed, the tiles can still form 上がり形.
+    tile.marked_as_removed, 上がり形(tiles, process_marked_as_removed=True)
     """
     suits = ("萬子", "筒子", "索子")
     counter = Counter((t.何者, t.その上の数字) for t in tiles)
+    condition1 = False
+    condition2 = False
+    
     for suit in suits:
         if all(counter[(suit, n)] >= 1 for n in range(1, 10)):
-            return True
+            condition1 = True
+            
+            # For condition 2, mark the 123456789 tiles as removed
+            temp_tiles = deepcopy(tiles)
+            n = 1
+            for t in temp_tiles:
+                if t.何者 == suit and t.その上の数字 == n:
+                    t.marked_as_removed = True
+                    n += 1
+            assert n == 10
+            # Check if remaining tiles can form a valid hand
+            condition2 = 上がり形(temp_tiles, process_marked_as_removed=True)
+            
+            # If both conditions are met, return True
+            if condition1 and condition2:
+                return True
+    
     return False
+
+
+# 手牌 = [
+#     麻雀牌("萬子", 1, False), 麻雀牌("萬子", 2, False), 麻雀牌("萬子", 3, False),  
+#     麻雀牌("索子", 1, False), 麻雀牌("索子", 2, False), 麻雀牌("索子", 3, False),  
+#     麻雀牌("萬子", 4, False), 麻雀牌("萬子", 5, False), 麻雀牌("萬子", 6, False), 
+#     麻雀牌("萬子", 7, False), 麻雀牌("萬子", 8, False), 麻雀牌("萬子", 9, False),  
+#     麻雀牌("萬子", 9, False),
+#     麻雀牌("萬子", 9, False) 
+# ]
+# 手牌.sort(key=lambda x: (x.sort_order, x.その上の数字))
+# print(一気通貫(手牌))
 
 
 
@@ -624,7 +791,8 @@ def 三色通貫(tiles: list[麻雀牌]) -> bool:
     由萬筒索三門三組順子組成的一氣通貫的牌型。Valid as long as:
     1. 123456789 all exists in tiles
     2. "萬子", "筒子", "索子" must all exist in tiles
-    3. The full seq is [(123), (456), (789)]. A suit claim one of them, then another claim another, then another claim the last one. 
+    3. The full seq is [(123), (456), (789)]. A suit claim one of them, then another claim another, then another claim the last one.
+    4. NEW: After the successful claim of all seq, copy the tiles, mark the tiles who has claimed. The full tiles must still form 上がり形. 
     """
     suits = ("萬子", "筒子", "索子")
     counter = Counter((t.何者, t.その上の数字) for t in tiles)
@@ -658,6 +826,7 @@ def 三色通貫(tiles: list[麻雀牌]) -> bool:
         # Try to assign sequences to suits in this order
         assignment_works = True
         used_suits = set()
+        suit_to_seq = {}  # Map suits to their assigned sequences
         
         for seq in seq_ordering:
             # Find a suit that can claim this sequence and hasn't been used
@@ -665,6 +834,7 @@ def 三色通貫(tiles: list[麻雀牌]) -> bool:
             for suit in suits:
                 if suit not in used_suits and seq in suit_sequences[suit]:
                     used_suits.add(suit)
+                    suit_to_seq[suit] = seq  # Store the assignment
                     assigned = True
                     break
             
@@ -674,7 +844,21 @@ def 三色通貫(tiles: list[麻雀牌]) -> bool:
         
         # If we found a valid assignment, return True
         if assignment_works and len(used_suits) == len(suits):
-            return True
+            # Implement condition 4: check if remaining tiles form 上がり形
+            temp_tiles = deepcopy(tiles)
+            
+            # Mark the assigned tiles as removed
+            for suit, seq in suit_to_seq.items():
+                for n in seq:
+                    # Mark exactly one tile of each number in each assigned sequence
+                    for t in temp_tiles:
+                        if t.何者 == suit and t.その上の数字 == n and not t.marked_as_removed:
+                            t.marked_as_removed = True
+                            break
+            
+            # Check if remaining tiles can form a valid hand
+            if 上がり形(temp_tiles, process_marked_as_removed=True):
+                return True
 
     return False
 
@@ -684,12 +868,10 @@ def 三色通貫(tiles: list[麻雀牌]) -> bool:
 #     麻雀牌("索子", 1, False), 麻雀牌("索子", 2, False), 麻雀牌("索子", 3, False),  
 #     麻雀牌("萬子", 4, False), 麻雀牌("萬子", 5, False), 麻雀牌("萬子", 6, False), 
 #     麻雀牌("筒子", 7, False), 麻雀牌("筒子", 8, False), 麻雀牌("筒子", 9, False),  
-#     麻雀牌("索子", 2, False),
-#     麻雀牌("索子", 2, False) 
+#     麻雀牌("筒子", 9, False),
+#     麻雀牌("筒子", 9, False) 
 # ]
 # 手牌.sort(key=lambda x: (x.sort_order, x.その上の数字))
-# for t in 手牌:
-#     print(t.何者, t.その上の数字, t.副露)
 # print(三色通貫(手牌))
 
 
@@ -835,6 +1017,9 @@ def 点数計算(tiles: list[麻雀牌], seat: int) -> tuple[int, list[str], boo
         yaku.append(f"赤ドラ{赤ドラの数(tiles)}")
 
     if 上がり形(tiles):
+        if 断么九(tiles):
+            score += 1000
+            yaku.append("断么九")
         if 混全帯么九(tiles):
             score += 3000
             yaku.append("混全帯么九")
@@ -843,9 +1028,6 @@ def 点数計算(tiles: list[麻雀牌], seat: int) -> tuple[int, list[str], boo
             score += 6000
             yaku.append("純全帯么九")
             win = True
-        if 断么九(tiles):
-            score += 1000
-            yaku.append("断么九")
         if 五門斉(tiles):
             score += 3000
             yaku.append("五門斉")

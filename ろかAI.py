@@ -172,6 +172,7 @@ class MahjongEnvironment:
                 #     print(f"{p.何者} {p.その上の数字}")
                 self.total_tennpai += len(何の牌)
                 reward_extra += len(何の牌) * 100
+            pass
         
         # 面子スコア: 13 枚の手牌から完成面子（順子・刻子）の最大数を求めて
         # 0面子→0, 1面子→1, 2面子→2, 3面子→4, 4面子→8を返す。雀頭は数えない。
@@ -793,7 +794,7 @@ def train_agent(episodes: int = 1200000, pretrained: str | None = None,
 
                 # モデル保存
                 if (ep + 1) % 1000 == 0:
-                    save_path = f"modelv6_0_ep{ep+1}.pth"
+                    save_path = f"Kurt_1_v80_ep{ep+1}.pth"
                     torch.save(agent.model.state_dict(), save_path)
                     print(f"[INFO] モデルを保存しました: {save_path}")
                 break
@@ -877,8 +878,8 @@ def test_agent(episodes: int, model_path: str,
 
 
 if __name__ == "__main__":
-    # trained_agent = train_agent(pretrained="Brett.pth", device="cuda",
-    #                             log_save_path="./log/training_logv6.csv")
+    # trained_agent = train_agent(pretrained="Kurt_v1.pth", device="cuda",
+    #                             log_save_path="./log/kurt_2_logv80.csv")
     # torch.save(trained_agent.model.state_dict(), "modelv6.pth")
     test_agent(episodes=5000, model_path="Brett.pth", device="cuda",
-               log_save_path="./log/testing_logv6.csv")
+               log_save_path="./log/testing_Brett.csv")
