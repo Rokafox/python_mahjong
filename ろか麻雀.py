@@ -66,10 +66,20 @@ class 麻雀牌:
             return 1
         elif self.何者 == "索子":
             return 2
-        elif self.何者 in ["東風", "南風", "西風", "北風"]:
+        elif self.何者 == "東風":
             return 3
-        elif self.何者 in ["白ちゃん", "發ちゃん", "中ちゃん"]:
+        elif self.何者 == "南風":
             return 4
+        elif self.何者 == "西風":
+            return 5
+        elif self.何者 == "北風":
+            return 6
+        elif self.何者 == "白ちゃん":
+            return 7
+        elif self.何者 == "發ちゃん":
+            return 8
+        elif self.何者 == "中ちゃん":
+            return 9
         else:
             raise Exception(f"不正な牌: {self.何者}")
         
@@ -78,6 +88,44 @@ class 麻雀牌:
             raise Exception(f"牌はすでに副露されています: {self.何者}, {self.その上の数字}")
         self.副露 = True
         return None
+
+    def get_asset(self, yoko: bool = False) -> str:
+        """
+        牌に対応する PNG ファイルのパスを返す。
+        `yoko=True` で横向き画像 (-yoko 付き) を返す。
+        赤ドラ (`self.赤ドラ=True`) のときは aka1/2/3 を優先して返す。
+        """
+        base_dir = "asset/tiles"
+        suffix   = "-yoko" if yoko else ""
+        
+        # ── 赤ドラ牌 ───────────────────────────────
+        if self.赤ドラ and self.その上の数字 == 5:
+            aka_map = {"筒子": "aka1",  # pin5
+                       "索子": "aka2",  # sou5
+                       "萬子": "aka3"}  # man5
+            aka_code = aka_map.get(self.何者)
+            if aka_code:  # 想定外の組み合わせは通常牌扱い
+                return f"{base_dir}/{aka_code}-66-90-s{suffix}.png"
+
+        # ── 数牌 (萬子・筒子・索子) ─────────────────
+        if self.何者 in {"萬子", "筒子", "索子"}:
+            suit_map = {"萬子": "man", "筒子": "pin", "索子": "sou"}
+            suit_code = suit_map[self.何者]
+            return f"{base_dir}/{suit_code}{self.その上の数字}-66-90-s{suffix}.png"
+
+        # ── 字牌 (風牌・三元牌) ─────────────────────
+        honor_map = {
+            "東風": 1, "南風": 2, "西風": 3, "北風": 4,
+            "白ちゃん": 5, "發ちゃん": 6, "中ちゃん": 7
+        }
+        honor_idx = honor_map.get(self.何者)
+        if honor_idx:
+            return f"{base_dir}/ji{honor_idx}-66-90-s{suffix}.png"
+
+        # ── ここに来る場合は未対応 ─────────────────
+        raise ValueError(f"アセットファイルが見つかりません: {self}")
+
+
 
 
 def nicely_print_tiles(tiles: list[麻雀牌], sortit: bool = True) -> str:
