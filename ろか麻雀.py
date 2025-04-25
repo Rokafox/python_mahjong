@@ -1,6 +1,7 @@
 from collections import Counter
 from copy import deepcopy
 from itertools import combinations, permutations
+import linecache
 import random
 
 class 麻雀牌:
@@ -79,15 +80,17 @@ class 麻雀牌:
         return None
 
 
-def nicely_print_tiles(tiles: list[麻雀牌]) -> str:
+def nicely_print_tiles(tiles: list[麻雀牌], sortit: bool = True) -> str:
     """
     牌のリストを整形して表示する
     """
     output = ""
     exposed_tiles = [t for t in tiles if t.副露]
-    exposed_tiles.sort(key=lambda x: (x.sort_order, x.その上の数字))
+    if sortit:
+        exposed_tiles.sort(key=lambda x: (x.sort_order, x.その上の数字))
     not_exposed_tiles = [t for t in tiles if not t.副露]
-    not_exposed_tiles.sort(key=lambda x: (x.sort_order, x.その上の数字))
+    if sortit:
+        not_exposed_tiles.sort(key=lambda x: (x.sort_order, x.その上の数字))
     r0 = []
     for tile in not_exposed_tiles:
         r0.append(str(tile))
@@ -98,6 +101,8 @@ def nicely_print_tiles(tiles: list[麻雀牌]) -> str:
         r1.append(str(tile))
     output += " ".join(r1)
     return output
+
+
 
 
 # ==========================
@@ -133,6 +138,49 @@ def 山を作成する() -> list[麻雀牌]:
     random.shuffle(山)
 
     assert len(山) == 136, f"山の長さが不正です: {len(山)}"
+    return 山
+
+
+
+def 基礎訓練山を作成する() -> list[麻雀牌]:
+    山: list[麻雀牌] = []
+    # 数牌（萬子、筒子、索子）各1〜9を4枚ずつ
+    for 何者 in ["萬子", "筒子", "索子"]:
+        for 数 in range(1, 5):
+            for _ in range(4):
+                山.append(麻雀牌(何者, 数, 赤ドラ=False))
+        for 数 in range(6, 10):
+            for _ in range(4):
+                山.append(麻雀牌(何者, 数, 赤ドラ=False))
+        for _ in range(3):
+            山.append(麻雀牌(何者, 5, 赤ドラ=False))
+        山.append(麻雀牌(何者, 5, 赤ドラ=True))
+
+    # 字牌：風牌
+    for 何者 in ["東風", "南風", "西風", "北風"]:
+        for _ in range(4):
+            山.append(麻雀牌(何者, 0, 赤ドラ=False))
+
+    # 字牌：三元牌
+    for 何者 in ["白ちゃん", "發ちゃん", "中ちゃん"]:
+        for _ in range(4):
+            山.append(麻雀牌(何者, 0, 赤ドラ=False))
+    
+    random.shuffle(山)
+
+    random_line = linecache.getline('tenpai_hands.txt', random.randint(0, 302956)).strip()
+    fake_tiles = create_mahjong_tiles_from_line(random_line)
+    for ft in fake_tiles:
+        for t in 山:
+            if ft.何者 == t.何者 and ft.その上の数字 == t.その上の数字 and not t.marked_a:
+                t.marked_a = True
+                break
+    # remove all marked_a tiles in 山
+    山 = [t for t in 山 if not t.marked_a]
+    assert len(山) == 136 - 13
+    山 = fake_tiles + 山
+
+    assert len(山) == 136, f"山の長さが不正です: {len(山)}" # TypeError: object of type 'NoneType' has no len()
     return 山
 
 
@@ -1178,3 +1226,123 @@ def 聴牌ですか(tiles: list[麻雀牌], seat: int) -> tuple[bool, list[麻�
     待ち牌 = [麻雀牌(s, n, False) for (s, n) in unique]
 
     return bool(待ち牌), 待ち牌
+
+
+# 手牌 = [
+#     麻雀牌("萬子", 1, False), 麻雀牌("萬子", 2, False), 麻雀牌("萬子", 3, False),  
+#     麻雀牌("索子", 1, False), 麻雀牌("索子", 2, False), 麻雀牌("索子", 3, False),  
+#     麻雀牌("萬子", 4, False), 麻雀牌("萬子", 5, False), 麻雀牌("萬子", 6, False), 
+#     麻雀牌("筒子", 7, False), 麻雀牌("筒子", 8, False), 麻雀牌("筒子", 9, False),  
+#     麻雀牌("筒子", 9, False),
+#     麻雀牌("筒子", 9, False) 
+# ]
+
+
+def generate_random_meld():
+    """Generate a random meld (triplet or sequence)"""
+    is_triplet = random.choice([True, False])
+    
+    if is_triplet:
+        # Generate a triplet (three identical tiles)
+        suit = random.choice(["萬子", "筒子", "索子", "東風", "南風", "西風", "北風", "白ちゃん", "發ちゃん", "中ちゃん"])
+        if suit in ["萬子", "筒子", "索子"]:
+            num = random.randint(1, 9)
+        else:
+            num = 0
+        return [麻雀牌(suit, num, False), 麻雀牌(suit, num, False), 麻雀牌(suit, num, False)]
+    else:
+        # Generate a sequence (three consecutive numbers in the same suit)
+        suit = random.choice(["萬子", "筒子", "索子"])  # Only numbered suits can form sequences
+        # Can only start a sequence with 1-7
+        start_num = random.randint(1, 7)
+        return [麻雀牌(suit, start_num, False), 麻雀牌(suit, start_num+1, False), 麻雀牌(suit, start_num+2, False)]
+
+def generate_random_tile():
+    """Generate a random tile"""
+    suit = random.choice(["萬子", "筒子", "索子", "東風", "南風", "西風", "北風", "白ちゃん", "發ちゃん", "中ちゃん"])
+    if suit in ["萬子", "筒子", "索子"]:
+        num = random.randint(1, 9)
+    else:
+        num = 0
+    return 麻雀牌(suit, num, False)
+
+
+def generate_random_41_13_hand():
+    """Generate a random hand with 4 melds (12 tiles) and 1 random tile"""
+    hand = []
+    
+    # Generate 4 melds (12 tiles)
+    for _ in range(4):
+        meld = generate_random_meld()
+        hand.extend(meld)
+    
+    # Add 1 random tile to make 13 tiles
+    hand.append(generate_random_tile())
+    
+    return hand
+
+
+def generate_tenpai():
+    # Generate hands until we find one in tenpai
+    total_attempts = 0
+    max_attempts = 1000000
+
+    while total_attempts < max_attempts:
+        total_attempts += 1
+        hand = generate_random_41_13_hand()
+        counter = Counter((t.何者, t.その上の数字) for t in hand)
+        # check valid hand
+        hand_is_valid = True
+        for key, cnt in counter.items():
+            if cnt > 4:
+                hand_is_valid = False
+                break
+
+        if not hand_is_valid:
+            continue
+        
+        is_tenpai, waiting_tiles = 聴牌ですか(hand.copy(), 0)  # Passing seat as 0
+        
+        if is_tenpai:
+            # print(f"Found tenpai hand:")
+            # print(f"Hand: {nicely_print_tiles(hand)}")
+            # print(f"Waiting for: {', '.join(str(t) for t in waiting_tiles)}")
+
+            # Write results to file
+            with open("tenpai_hands.txt", "a", encoding="utf-8") as f:
+                f.write(f"{nicely_print_tiles(hand)}\n")
+
+
+
+def create_mahjong_tiles_from_line(line: str) -> list[麻雀牌]:
+    """
+    Takes a line from tenpai_hand.txt and converts it into a list of 麻雀牌 instances.
+    Each line should be formatted as "牌名 数字" (e.g., "萬子5", "東風", "中ちゃん").
+    """
+
+    if line.endswith(" |"):
+        line = line[:-2].strip()
+     
+    tiles = []
+    tile_specs = line.split()
+    
+    for tile_spec in tile_specs:
+        if " " in tile_spec:
+            # Handle multi-tile input, which is not implemented.
+            raise ValueError("Multi-tile input is not supported.")
+        if tile_spec in {"東風", "南風", "西風", "北風", "白ちゃん", "發ちゃん", "中ちゃん"}:
+            tiles.append(麻雀牌(tile_spec, 0))
+        else:
+            牌名 = tile_spec[:-1]
+            数字 = int(tile_spec[-1])
+            tiles.append(麻雀牌(牌名, 数字))
+    return tiles
+
+
+
+# generate_tenpai()
+# line_from_file = "萬子5 萬子6 萬子7 筒子3 筒子4 筒子5 索子4 索子5 索子6 東風 中ちゃん 中ちゃん 中ちゃん |"
+# 手牌 = create_mahjong_tiles_from_line(line_from_file)
+# print(nicely_print_tiles(手牌))
+# m = 基礎訓練山を作成する()
+# print(nicely_print_tiles(m, False))
