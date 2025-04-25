@@ -1035,7 +1035,6 @@ def 点数計算(tiles: list[麻雀牌], seat: int) -> tuple[int, list[str], boo
     score = 0
     yaku = []
     win = False
-    fourkezu = False
 
     if seat == 0 and 東(tiles):
         score += 1000
@@ -1144,8 +1143,7 @@ def 点数計算(tiles: list[麻雀牌], seat: int) -> tuple[int, list[str], boo
             score += 32000
             yaku.append("四連刻")
             win = True
-            fourkezu = True
-        if not fourkezu and 三連刻(tiles):
+        if 三連刻(tiles):
             score += 3000
             yaku.append("三連刻")
             win = True
@@ -1239,9 +1237,7 @@ def 聴牌ですか(tiles: list[麻雀牌], seat: int) -> tuple[bool, list[麻�
 
 
 def generate_random_meld():
-    """Generate a random meld (triplet or sequence)"""
     is_triplet = random.choice([True, False])
-    
     if is_triplet:
         # Generate a triplet (three identical tiles)
         suit = random.choice(["萬子", "筒子", "索子", "東風", "南風", "西風", "北風", "白ちゃん", "發ちゃん", "中ちゃん"])
@@ -1258,7 +1254,6 @@ def generate_random_meld():
         return [麻雀牌(suit, start_num, False), 麻雀牌(suit, start_num+1, False), 麻雀牌(suit, start_num+2, False)]
 
 def generate_random_tile():
-    """Generate a random tile"""
     suit = random.choice(["萬子", "筒子", "索子", "東風", "南風", "西風", "北風", "白ちゃん", "發ちゃん", "中ちゃん"])
     if suit in ["萬子", "筒子", "索子"]:
         num = random.randint(1, 9)
@@ -1268,17 +1263,11 @@ def generate_random_tile():
 
 
 def generate_random_41_13_hand():
-    """Generate a random hand with 4 melds (12 tiles) and 1 random tile"""
     hand = []
-    
-    # Generate 4 melds (12 tiles)
     for _ in range(4):
         meld = generate_random_meld()
         hand.extend(meld)
-    
-    # Add 1 random tile to make 13 tiles
     hand.append(generate_random_tile())
-    
     return hand
 
 
@@ -1297,35 +1286,20 @@ def generate_tenpai():
             if cnt > 4:
                 hand_is_valid = False
                 break
-
         if not hand_is_valid:
             continue
-        
         is_tenpai, waiting_tiles = 聴牌ですか(hand.copy(), 0)  # Passing seat as 0
-        
         if is_tenpai:
-            # print(f"Found tenpai hand:")
-            # print(f"Hand: {nicely_print_tiles(hand)}")
-            # print(f"Waiting for: {', '.join(str(t) for t in waiting_tiles)}")
-
-            # Write results to file
             with open("tenpai_hands.txt", "a", encoding="utf-8") as f:
                 f.write(f"{nicely_print_tiles(hand)}\n")
 
 
 
 def create_mahjong_tiles_from_line(line: str) -> list[麻雀牌]:
-    """
-    Takes a line from tenpai_hand.txt and converts it into a list of 麻雀牌 instances.
-    Each line should be formatted as "牌名 数字" (e.g., "萬子5", "東風", "中ちゃん").
-    """
-
     if line.endswith(" |"):
         line = line[:-2].strip()
-     
     tiles = []
     tile_specs = line.split()
-    
     for tile_spec in tile_specs:
         if " " in tile_spec:
             # Handle multi-tile input, which is not implemented.
@@ -1337,12 +1311,3 @@ def create_mahjong_tiles_from_line(line: str) -> list[麻雀牌]:
             数字 = int(tile_spec[-1])
             tiles.append(麻雀牌(牌名, 数字))
     return tiles
-
-
-
-# generate_tenpai()
-# line_from_file = "萬子5 萬子6 萬子7 筒子3 筒子4 筒子5 索子4 索子5 索子6 東風 中ちゃん 中ちゃん 中ちゃん |"
-# 手牌 = create_mahjong_tiles_from_line(line_from_file)
-# print(nicely_print_tiles(手牌))
-# m = 基礎訓練山を作成する()
-# print(nicely_print_tiles(m, False))

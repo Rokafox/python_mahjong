@@ -33,21 +33,22 @@ class MahjongEnvironment:
 
         agent_tiles = 山[:agent_count]
         sandbag_a = 山[agent_count:agent_count + sandbag_count]
-        sandbag_b = 山[agent_count + sandbag_count:agent_count + 2 * sandbag_count]
+        # sandbag_b = 山[agent_count + sandbag_count:agent_count + 2 * sandbag_count]
         # sandbag_c = 山[agent_count + 2 * sandbag_count:agent_count + 3 * sandbag_count]
-        remaining = 山[agent_count + 2 * sandbag_count:]
+        remaining = 山[agent_count + sandbag_count:]
 
-        return agent_tiles, sandbag_a, sandbag_b, remaining
+        return agent_tiles, sandbag_a, remaining
     
 
     def reset(self):
         self.手牌: list[麻雀牌]
         self.山 = 山を作成する()
+        # self.山 = 基礎訓練山を作成する()
         (
             self.手牌,
             self.sandbag_a_tiles,
-            self.sandbag_b_tiles,
-            # self.sandbag_c_tiles,
+            # self.sandbag_b_tiles,
+            # self.sandbag_c_tiles, # Sandbag removed
             self.山
         ) = self.配牌を割り当てる(
             self.山,
@@ -166,25 +167,25 @@ class MahjongEnvironment:
             # 聴牌の場合、大量の報酬を与える
             聴牌, 何の牌 = 聴牌ですか(self.手牌, self.seat)
             if 聴牌:
-                reward_extra += 800
+                reward_extra += 300
                 # print(f"聴牌:")
                 # for p in 何の牌:
                 #     print(f"{p.何者} {p.その上の数字}")
                 self.total_tennpai += len(何の牌)
-                reward_extra += len(何の牌) * 100
+                reward_extra += len(何の牌) * 50
             pass
         
         # 面子スコア: 13 枚の手牌から完成面子（順子・刻子）の最大数を求めて
         # 0面子→0, 1面子→1, 2面子→2, 3面子→4, 4面子→8を返す。雀頭は数えない。
-        # mz_score = 面子スコア(self.手牌)
-        # self.mz_score += mz_score * 9
-        # reward_extra += mz_score * 9
+        mz_score = 面子スコア(self.手牌)
+        self.mz_score += mz_score * 4
+        reward_extra += mz_score * 4
 
         # 対子スコア: 13 枚の手牌から完成対子の最大数を求めて
         # 0対子→0, 1対子→1, 2対子→2, 3対子→4, 4対子→8, 5対子→16, 6対子→32を返す。副露は数えない。
-        # tuiz_score = 対子スコア(self.手牌)
-        # self.tuiz_score += tuiz_score * 3
-        # reward_extra += tuiz_score * 3
+        tuiz_score = 対子スコア(self.手牌)
+        self.tuiz_score += tuiz_score * 2
+        reward_extra += tuiz_score * 2
 
         # Big penalty for having 4,5,6.
         # for t in self.手牌:
@@ -291,8 +292,8 @@ class MahjongEnvironment:
         sandbag_tiles = None
         if self.current_actor == 1:
             sandbag_tiles = self.sandbag_a_tiles
-        elif self.current_actor == 2:
-            sandbag_tiles = self.sandbag_b_tiles
+        # elif self.current_actor == 2: # removed
+        #     sandbag_tiles = self.sandbag_b_tiles 
         # elif self.current_actor == 3: # The player is removed
         #     sandbag_tiles = self.sandbag_c_tiles
         
@@ -462,7 +463,8 @@ class MahjongEnvironment:
 
 
         # Move to next actor (cycle through 0-2) prev: 0-3
-        self.current_actor = (self.current_actor + 1) % 3
+        # 2025-04-25 NEW: only 2 players left
+        self.current_actor = (self.current_actor + 1) % 2
         self.turn += 1
         final_action = -1
         if agent_did_nothing:
@@ -622,7 +624,7 @@ class DQNAgent:
 
         self.gamma = 0.99
         self.epsilon = 1.0
-        self.epsilon_min = 0.1
+        self.epsilon_min = 0.005
         self.epsilon_decay = 0.998
         self.learning_rate = 1e-3
 
@@ -755,17 +757,19 @@ class DQNAgent:
             self.epsilon *= self.epsilon_decay
 
 
-def train_agent(episodes: int = 1200000, pretrained: str | None = None,
+def train_agent(episodes: int = 4000, name: str = "agent",
                 device: str = "cpu", log_save_path: str = None) -> DQNAgent:
     env = MahjongEnvironment()
     agent = DQNAgent(242, 34 + 3, device=device)
     if os.path.exists(log_save_path):
-        raise FileExistsError(f"Log file {log_save_path} already exists. Please choose a different name.")
-    if pretrained and os.path.exists(pretrained):
-        agent.model.load_state_dict(torch.load(pretrained, map_location=device))
+        raise FileExistsError(f"Log file {log_save_path} already exists. Choose a different name.")
+    if name and os.path.exists(f"./DQN_agents/{name}.pth"):
+        agent.model.load_state_dict(torch.load(f"./DQN_agents/{name}.pth", map_location=device))
         agent.update_target_model()
-        agent.epsilon = 0.01
-        print(f"[INFO] 既存モデル {pretrained} をロードしました。")
+        agent.epsilon = 0.002
+        print(f"[INFO] Agent {name} loaded.")
+    else:
+        print(f"Training new agent: {name}")
 
     batch_size = 64
     for ep in range(episodes):
@@ -794,9 +798,9 @@ def train_agent(episodes: int = 1200000, pretrained: str | None = None,
 
                 # モデル保存
                 if (ep + 1) % 1000 == 0:
-                    save_path = f"Kurt_1_v80_ep{ep+1}.pth"
+                    save_path = f"./DQN_agents/{name}_{ep+1}.pth"
                     torch.save(agent.model.state_dict(), save_path)
-                    print(f"[INFO] モデルを保存しました: {save_path}")
+                    print(f"[INFO] Agent saved: {save_path}")
                 break
 
     return agent
@@ -878,8 +882,6 @@ def test_agent(episodes: int, model_path: str,
 
 
 if __name__ == "__main__":
-    # trained_agent = train_agent(pretrained="Kurt_v1.pth", device="cuda",
-    #                             log_save_path="./log/kurt_2_logv80.csv")
-    # torch.save(trained_agent.model.state_dict(), "modelv6.pth")
-    test_agent(episodes=5000, model_path="Brett.pth", device="cuda",
-               log_save_path="./log/testing_Brett.csv")
+    # trained_agent = train_agent(name="Kurt", device="cuda", log_save_path="./log/train.csv")
+    test_agent(episodes=5000, model_path="./DQN_agents/Kurt.pth", device="cuda",
+               log_save_path="./log/test_Kurt.csv")
