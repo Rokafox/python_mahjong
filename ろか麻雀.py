@@ -116,7 +116,7 @@ class 麻雀牌:
         # ── 字牌 (風牌・三元牌) ─────────────────────
         honor_map = {
             "東風": 1, "南風": 2, "西風": 3, "北風": 4,
-            "白ちゃん": 5, "發ちゃん": 6, "中ちゃん": 7
+            "發ちゃん": 5, "白ちゃん": 6, "中ちゃん": 7
         }
         honor_idx = honor_map.get(self.何者)
         if honor_idx:
@@ -216,7 +216,7 @@ def 基礎訓練山を作成する() -> list[麻雀牌]:
     
     random.shuffle(山)
 
-    random_line = linecache.getline('tenpai_hands.txt', random.randint(0, 302956)).strip()
+    random_line = linecache.getline('tenpai_hands.txt', random.randint(0, 28645)).strip()
     fake_tiles = create_mahjong_tiles_from_line(random_line)
     for ft in fake_tiles:
         for t in 山:
@@ -1288,7 +1288,9 @@ def generate_random_meld():
     is_triplet = random.choice([True, False])
     if is_triplet:
         # Generate a triplet (three identical tiles)
-        suit = random.choice(["萬子", "筒子", "索子", "東風", "南風", "西風", "北風", "白ちゃん", "發ちゃん", "中ちゃん"])
+        suits = ["萬子", "筒子", "索子", "東風", "南風", "西風", "北風", "白ちゃん", "發ちゃん", "中ちゃん"]
+        weights = [6, 6, 6, 1, 1, 1, 1, 1, 1, 1]
+        suit = random.choices(suits, weights=weights, k=1)[0]
         if suit in ["萬子", "筒子", "索子"]:
             num = random.randint(1, 9)
         else:
@@ -1302,7 +1304,9 @@ def generate_random_meld():
         return [麻雀牌(suit, start_num, False), 麻雀牌(suit, start_num+1, False), 麻雀牌(suit, start_num+2, False)]
 
 def generate_random_tile():
-    suit = random.choice(["萬子", "筒子", "索子", "東風", "南風", "西風", "北風", "白ちゃん", "發ちゃん", "中ちゃん"])
+    suits = ["萬子", "筒子", "索子", "東風", "南風", "西風", "北風", "白ちゃん", "發ちゃん", "中ちゃん"]
+    weights = [6, 6, 6, 1, 1, 1, 1, 1, 1, 1]
+    suit = random.choices(suits, weights=weights, k=1)[0]
     if suit in ["萬子", "筒子", "索子"]:
         num = random.randint(1, 9)
     else:
@@ -1319,10 +1323,9 @@ def generate_random_41_13_hand():
     return hand
 
 
-def generate_tenpai():
+def generate_tenpai(max_attempts):
     # Generate hands until we find one in tenpai
     total_attempts = 0
-    max_attempts = 1000000
 
     while total_attempts < max_attempts:
         total_attempts += 1
@@ -1359,3 +1362,7 @@ def create_mahjong_tiles_from_line(line: str) -> list[麻雀牌]:
             数字 = int(tile_spec[-1])
             tiles.append(麻雀牌(牌名, 数字))
     return tiles
+
+
+# if __name__ == "__main__":
+#     generate_tenpai(100000)
