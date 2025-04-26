@@ -7,6 +7,9 @@ import pygame.freetype
 import sys
 import os
 from typing import List, Dict, Tuple, Optional
+
+import torch
+from ろかAI import DQNAgent
 from ろか麻雀 import nicely_print_tiles, 基礎訓練山を作成する, 山を作成する, 点数計算, 聴牌ですか, 麻雀牌
 
 
@@ -84,11 +87,6 @@ class Env:
         self.opponent_hand.sort(key=lambda x: (x.sort_order, x.その上の数字))
         return tile
     
-    def opponent_discard_tile(self, index: int):
-        if index < 0 or index >= len(self.opponent_hand):
-            raise ValueError("Invalid index")
-        tile = self.opponent_hand.pop(index)
-        return tile
 
     # ==========================
     # Methods for RL agent
@@ -167,7 +165,7 @@ class Env:
 
 
     def get_valid_actions(self, extra_tile_idx: int, tenpai: bool=False) -> list[int]:
-        if self.current_actor == 0:
+        if self.current_actor == 1: # Opponent
             # 行動：牌を捨てる
             # 聴牌の時、もらった牌を捨てるだけにしとこう
             if tenpai and extra_tile_idx >= 0:
@@ -236,6 +234,10 @@ if __name__ == "__main__":
         pygame.display.set_icon(icon)
     except Exception as e:
         print(f"Error loading icon: {e}")
+
+    dqn_agent = DQNAgent(242, 34 + 3, device="cpu")
+    dqn_agent.model.load_state_dict(torch.load("./DQN_agents/Agent.pth", map_location="cpu"))
+    dqn_agent.epsilon = 0
 
     print("Starting!")
     running = True 
@@ -440,7 +442,11 @@ if __name__ == "__main__":
         player_can_call = False
         env.current_actor = 1
         env.turn += 1
+
+        tenpai_before_draw, list_of_tanpai = 聴牌ですか(env.opponent_hand, env.opponent_seat)
         new_tile = env.opponent_draw_tile()
+        newly_drawn_tile_index = env._tile_to_index(new_tile)
+        
 
         # ツモ
         a, b, c = 点数計算(env.opponent_hand, env.opponent_seat) # This func returns 点数int, 完成した役list, 和了形bool
@@ -448,8 +454,7 @@ if __name__ == "__main__":
             # opponent win by tsumo
             env.game_complete = True
             game_state_text_box.set_text("====================================\n")
-            game_state_text_box.append_html_text(f"AI win!\n")
-            game_state_text_box.append_html_text(f"点数: {player_win_points}点\n")
+            game_state_text_box.append_html_text(f"ツモ！点数: {player_win_points}点\n")
             for yaku in player_win_yaku:
                 game_state_text_box.append_html_text(f"{yaku}\n")
             button_tsumo.hide()
@@ -465,9 +470,29 @@ if __name__ == "__main__":
             return None
 
 
-        discarded_tile = env.opponent_discard_tile(0)
+        valid_actions: list = env.get_valid_actions(extra_tile_idx=newly_drawn_tile_index,
+                                                     tenpai=tenpai_before_draw)
+        assert len(valid_actions) > 0
+        action: int
+        action, full_dict = dqn_agent.act(env._get_state(), valid_actions)
+        # print(f"Opponent action: {action}")
+        # print(env._index_to_tile_type(action))
+        # print(tile_type) # ('筒子', 5)
+        discarded_tile = None
+        for t in [t for t in env.opponent_hand if not t.副露]:
+            if (t.何者, t.その上の数字) == env._index_to_tile_type(action):
+                discarded_tile = t
+                break
+        if discarded_tile is None:
+            raise ValueError(f"Invalid action: {env._index_to_tile_type(action)} not in hand.")
+        # Remove the tile from the hand and add it to the discard pile
+        assert discarded_tile.副露 == False, f"Exposed tile can not be discarded! {discarded_tile.何者}{discarded_tile.その上の数字}"
+
+
+        # discarded_tile = env.opponent_discard_tile(0)
         tile_discarded_by_opponent = discarded_tile
         env.discard_pile_opponent.append(discarded_tile)
+        env.opponent_hand.remove(discarded_tile)
         draw_ui_opponent_discarded_tiles()
 
         # Check if agent can ロン (win) with this tile
@@ -556,7 +581,7 @@ if __name__ == "__main__":
         global player_win_points, player_win_yaku
         env.game_complete = True
         game_state_text_box.set_text("====================================\n")
-        game_state_text_box.append_html_text(f"点数: {player_win_points}点\n")
+        game_state_text_box.append_html_text(f"ロン！点数: {player_win_points}点\n")
         for yaku in player_win_yaku:
             game_state_text_box.append_html_text(f"{yaku}\n")
         button_tsumo.hide()
@@ -573,7 +598,7 @@ if __name__ == "__main__":
         global player_win_points, player_win_yaku
         env.game_complete = True
         game_state_text_box.set_text("====================================\n")
-        game_state_text_box.append_html_text(f"点数: {player_win_points}点\n")
+        game_state_text_box.append_html_text(f"ツモ！点数: {player_win_points}点\n")
         for yaku in player_win_yaku:
             game_state_text_box.append_html_text(f"{yaku}\n")
         button_tsumo.hide()
@@ -604,11 +629,7 @@ if __name__ == "__main__":
         draw_ui_opponent_hand()
         draw_ui_player_discarded_tiles()
         draw_ui_opponent_discarded_tiles()
-        button_tsumo.hide()
-        button_chii.hide()
-        button_pon.hide()
-        button_ron.hide()
-        button_pass.hide()
+
 
     def player_chii():
         for t in env.player_hand:
@@ -630,11 +651,8 @@ if __name__ == "__main__":
         draw_ui_opponent_hand()
         draw_ui_player_discarded_tiles()
         draw_ui_opponent_discarded_tiles()
-        button_tsumo.hide()
-        button_chii.hide()
-        button_pon.hide()
-        button_ron.hide()
-        button_pass.hide()
+
+
 
     def player_pass():
         global player_win_points, player_win_yaku
@@ -642,8 +660,14 @@ if __name__ == "__main__":
             env.discard_pile_opponent.sort(key=lambda x: (x.sort_order, x.その上の数字))
 
             env.current_actor = 0
-            if len(env.player_discard_tile) < 40:
+            if len(env.discard_pile_player) < 40:
                 new_tile = env.player_draw_tile()
+                点数, 役, 和了形 = 点数計算(env.player_hand, env.player_seat)
+                if 和了形:
+                    button_pass.show()
+                    button_tsumo.show()
+                    player_win_points = 点数
+                    player_win_yaku = 役
                 draw_ui_player_hand()
                 player_check_discard_what_to_tenpai()
                 draw_ui_opponent_hand()
