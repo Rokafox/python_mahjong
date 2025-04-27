@@ -71,14 +71,6 @@ class Env:
         self.player_hand.sort(key=lambda x: (x.sort_order, x.その上の数字))
         return tile
 
-    def player_discard_tile(self, index: int):
-        if index < 0 or index >= len(self.player_hand):
-            raise ValueError("Invalid index")
-        tile = self.player_hand.pop(index)
-        self.discard_pile_player.append(tile)
-        self.discard_pile_player.sort(key=lambda x: (x.sort_order, x.その上の数字))
-        return tile
-
     def opponent_draw_tile(self) -> Optional[麻雀牌]:
         if len(self.山) == 0:
             return None
@@ -489,7 +481,6 @@ if __name__ == "__main__":
         assert discarded_tile.副露 == False, f"Exposed tile can not be discarded! {discarded_tile.何者}{discarded_tile.その上の数字}"
 
 
-        # discarded_tile = env.opponent_discard_tile(0)
         tile_discarded_by_opponent = discarded_tile
         env.discard_pile_opponent.append(discarded_tile)
         env.opponent_hand.remove(discarded_tile)
@@ -544,7 +535,6 @@ if __name__ == "__main__":
         if player_can_call:
             return None
         else:
-            env.discard_pile_opponent.sort(key=lambda x: (x.sort_order, x.その上の数字))
             if len(env.discard_pile_player) < 40:
                 new_tile = env.player_draw_tile()
                 点数, 役, 和了形 = 点数計算(env.player_hand, env.player_seat)
@@ -624,6 +614,11 @@ if __name__ == "__main__":
         env.discard_pile_opponent.pop()
 
         env.current_actor = 0
+        button_tsumo.hide()
+        button_chii.hide()
+        button_pon.hide()
+        button_ron.hide()
+        button_pass.hide()
         draw_ui_player_hand()
         player_check_discard_what_to_tenpai()
         draw_ui_opponent_hand()
@@ -646,6 +641,11 @@ if __name__ == "__main__":
         env.discard_pile_opponent.pop()
 
         env.current_actor = 0
+        button_tsumo.hide()
+        button_chii.hide()
+        button_pon.hide()
+        button_ron.hide()
+        button_pass.hide()
         draw_ui_player_hand()
         player_check_discard_what_to_tenpai()
         draw_ui_opponent_hand()
@@ -657,8 +657,6 @@ if __name__ == "__main__":
     def player_pass():
         global player_win_points, player_win_yaku
         if env.current_actor == 1:
-            env.discard_pile_opponent.sort(key=lambda x: (x.sort_order, x.その上の数字))
-
             env.current_actor = 0
             if len(env.discard_pile_player) < 40:
                 new_tile = env.player_draw_tile()
@@ -837,7 +835,8 @@ if __name__ == "__main__":
                 for index, image_slot in enumerate(player_tile_slots):
                     if image_slot.rect.collidepoint(event.pos) and env.current_actor == 0 and not image_slot.set_temp_marked and not env.game_complete:
                         # discard the tile
-                        env.player_discard_tile(index)
+                        tile = env.player_hand.pop(index)
+                        env.discard_pile_player.append(tile)
                         draw_ui_player_hand()
                         draw_ui_player_discarded_tiles()
                         button_tsumo.hide()

@@ -1289,7 +1289,7 @@ def generate_random_meld():
     if is_triplet:
         # Generate a triplet (three identical tiles)
         suits = ["萬子", "筒子", "索子", "東風", "南風", "西風", "北風", "白ちゃん", "發ちゃん", "中ちゃん"]
-        weights = [6, 6, 6, 1, 1, 1, 1, 1, 1, 1]
+        weights = [4.5, 4.5, 4.5, 1, 1, 1, 1, 1, 1, 1]
         suit = random.choices(suits, weights=weights, k=1)[0]
         if suit in ["萬子", "筒子", "索子"]:
             num = random.randint(1, 9)
@@ -1305,7 +1305,7 @@ def generate_random_meld():
 
 def generate_random_tile():
     suits = ["萬子", "筒子", "索子", "東風", "南風", "西風", "北風", "白ちゃん", "發ちゃん", "中ちゃん"]
-    weights = [6, 6, 6, 1, 1, 1, 1, 1, 1, 1]
+    weights = [9, 9, 9, 1, 1, 1, 1, 1, 1, 1]
     suit = random.choices(suits, weights=weights, k=1)[0]
     if suit in ["萬子", "筒子", "索子"]:
         num = random.randint(1, 9)
@@ -1364,5 +1364,5 @@ def create_mahjong_tiles_from_line(line: str) -> list[麻雀牌]:
     return tiles
 
 
-# if __name__ == "__main__":
-#     generate_tenpai(100000)
+if __name__ == "__main__":
+    generate_tenpai(100000)
