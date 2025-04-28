@@ -32,6 +32,11 @@ class Env:
         self.player_seat: int = 0  # 0=東, 1=南, 2=西, 3=北
         self.opponent_seat: int = 2  # 0=東, 1=南, 2=西, 3=北
         self.game_complete = False
+        self.player_name = "令狐蘆花"
+        self.opponent_name = "ヒルチャール"
+        self.player_points = 25000
+        self.opponent_points = 25000
+        self.starting_points = 25000 
 
     def start_new_game(self):
         self.generate_pile()
@@ -319,6 +324,13 @@ if __name__ == "__main__":
         spacing=4
     )
 
+    player_name_label = pygame_gui.elements.UILabel(pygame.Rect((100, 800), (200, 50)),
+                                                    text="Player",
+                                                    manager=ui_manager)
+    opponent_name_label = pygame_gui.elements.UILabel(pygame.Rect((100, 50), (200, 50)),
+                                                    text="Opponent",
+                                                    manager=ui_manager)
+
     game_state_text_box = pygame_gui.elements.UITextEntryBox(pygame.Rect((1100, 700), (480, 180)),"", ui_manager)
 
 
@@ -332,7 +344,12 @@ if __name__ == "__main__":
             try:
                 image_surface = pygame.image.load(image_path)
                 player_tile_slots[i].set_temp_marked = False
-                player_tile_slots[i].set_image(image_surface)
+                # We need to consider whether the tile is exposed, if so, add sliver outline
+                if not t.副露:
+                    player_tile_slots[i].set_image(image_surface)
+                else:
+                    new_image = add_outline_to_image(image_surface, (186, 85, 211), 2)
+                    player_tile_slots[i].set_image(new_image)
             except pygame.error as e:
                 print(f"Error loading image {image_path}: {e}")
         if len(env.player_hand) < 14:
@@ -398,19 +415,22 @@ if __name__ == "__main__":
             s.set_tooltip("", delay=0.1)
         assert len(env.player_hand) == 14
         for i, t in enumerate(env.player_hand):
+            if t.副露:
+                continue
             pirate_hand = env.player_hand.copy()
             pirate_hand.pop(i)
             is_tenpai, list_of_tiles_to_tenpai = 聴牌ですか(pirate_hand, env.player_seat)
             if is_tenpai:
                 s = str(env.player_hand[i])
-                tp = f"\n聴牌:\n{nicely_print_tiles(list_of_tiles_to_tenpai)}"
+                tp = f"\n聴牌:\n{nicely_print_tiles(list_of_tiles_to_tenpai)[:-2].strip()}"
                 player_tile_slots[i].set_tooltip(s + tp, delay=0.1)
                 image = player_tile_slots[i].image
                 new_image = add_outline_to_image(image, (255, 215, 0), 2)
                 player_tile_slots[i].set_image(new_image)
 
 
-    def start_new_game():
+    def start_new_game(reset_points: bool = False):
+        global player_win_points, player_win_yaku
         env.start_new_game()
         new_tile = env.player_draw_tile()
         draw_ui_player_hand()
@@ -419,15 +439,31 @@ if __name__ == "__main__":
         draw_ui_player_discarded_tiles()
         draw_ui_opponent_discarded_tiles()
         game_state_text_box.set_text("====================================\n")
+        if reset_points:
+            env.player_points = env.starting_points
+            env.opponent_points = env.starting_points
+        button_tsumo.hide()
+        button_chii.hide()
+        button_pon.hide()
+        button_ron.hide()
+        button_pass.hide()
+        a00, b00, c00 = 点数計算(env.player_hand, env.player_seat)
+        if c00:
+            button_pass.show()
+            button_tsumo.show()
+            player_win_points = a00
+            player_win_yaku = b00
 
 
-    tile_discarded_by_opponent: 麻雀牌 | None = None
+    last_tile_discarded_by_opponent: 麻雀牌 | None = None
+    last_tile_discarded_by_player: 麻雀牌 | None = None
     player_chii_tiles: List[麻雀牌] = []
     player_win_points: int = 0
     player_win_yaku: list[str] = []
 
+
     def progress_opponent_turn():
-        global tile_discarded_by_opponent, player_chii_tiles
+        global last_tile_discarded_by_opponent, last_tile_discarded_by_player, player_chii_tiles
         global player_win_points, player_win_yaku
         for s in player_tile_slots:
             s.set_tooltip("", delay=0.1)
@@ -435,20 +471,17 @@ if __name__ == "__main__":
         env.current_actor = 1
         env.turn += 1
 
-        tenpai_before_draw, list_of_tanpai = 聴牌ですか(env.opponent_hand, env.opponent_seat)
-        new_tile = env.opponent_draw_tile()
-        newly_drawn_tile_index = env._tile_to_index(new_tile)
-        
-
-        # ツモ
-        a, b, c = 点数計算(env.opponent_hand, env.opponent_seat) # This func returns 点数int, 完成した役list, 和了形bool
-        if c:
-            # opponent win by tsumo
+        # Opponent Ron
+        temp_opponent_hand = env.opponent_hand.copy()
+        temp_opponent_hand.append(last_tile_discarded_by_player)
+        a0, b0, c0 = 点数計算(temp_opponent_hand, env.opponent_seat)
+        if c0:
+            # opponent win by ron
             env.game_complete = True
             game_state_text_box.set_text("====================================\n")
-            game_state_text_box.append_html_text(f"ツモ！点数: {player_win_points}点\n")
-            for yaku in player_win_yaku:
-                game_state_text_box.append_html_text(f"{yaku}\n")
+            game_state_text_box.append_html_text(f"{env.opponent_name}: ロン！\n")
+            game_state_text_box.append_html_text(f"{env.opponent_name}: {' '.join(b0)}\n")
+            game_state_text_box.append_html_text(f"{env.opponent_name}: {a0}点\n")
             button_tsumo.hide()
             button_chii.hide()
             button_pon.hide()
@@ -459,6 +492,40 @@ if __name__ == "__main__":
             for s in player_tile_slots:
                 s.set_tooltip("", delay=0.1)
             draw_ui_opponent_hand()
+            env.opponent_points += a0
+            env.player_points -= a0
+            draw_ui_player_labels()
+            return None
+
+
+        # Opponent draw a tile
+        tenpai_before_draw, list_of_tanpai = 聴牌ですか(env.opponent_hand, env.opponent_seat)
+        new_tile = env.opponent_draw_tile()
+        newly_drawn_tile_index = env._tile_to_index(new_tile)
+        
+
+        # Opponent tsumo
+        a, b, c = 点数計算(env.opponent_hand, env.opponent_seat) # This func returns 点数int, 完成した役list, 和了形bool
+        if c:
+            # opponent win by tsumo
+            env.game_complete = True
+            game_state_text_box.set_text("====================================\n")
+            game_state_text_box.append_html_text(f"{env.opponent_name}: ツモ！\n")
+            game_state_text_box.append_html_text(f"{env.opponent_name}: {' '.join(b)}\n")
+            game_state_text_box.append_html_text(f"{env.opponent_name}: {a}点\n")
+            button_tsumo.hide()
+            button_chii.hide()
+            button_pon.hide()
+            button_ron.hide()
+            button_pass.hide()
+            player_win_points = 0
+            player_win_yaku = []
+            for s in player_tile_slots:
+                s.set_tooltip("", delay=0.1)
+            draw_ui_opponent_hand()
+            env.opponent_points += a
+            env.player_points -= a
+            draw_ui_player_labels()
             return None
 
 
@@ -481,7 +548,7 @@ if __name__ == "__main__":
         assert discarded_tile.副露 == False, f"Exposed tile can not be discarded! {discarded_tile.何者}{discarded_tile.その上の数字}"
 
 
-        tile_discarded_by_opponent = discarded_tile
+        last_tile_discarded_by_opponent = discarded_tile
         env.discard_pile_opponent.append(discarded_tile)
         env.opponent_hand.remove(discarded_tile)
         draw_ui_opponent_discarded_tiles()
@@ -563,54 +630,51 @@ if __name__ == "__main__":
                 for s in player_tile_slots:
                     s.set_tooltip("", delay=0.1)
 
+    def draw_ui_player_labels():
+        player_name_label.set_text(f"{env.player_name} : {env.player_points}点")
+        opponent_name_label.set_text(f"{env.opponent_name} : {env.opponent_points}点")
 
-    start_new_game()
 
+    def player_win(is_tsumo: bool):
+        global player_win_points, player_win_yaku
+        env.game_complete = True
+        win_type = "ツモ" if is_tsumo else "ロン"
+        game_state_text_box.set_text("====================================\n")
+        game_state_text_box.append_html_text(f"{env.player_name}: {win_type}！\n")
+        game_state_text_box.append_html_text(f"{env.player_name}: {' '.join(player_win_yaku)}\n")
+        game_state_text_box.append_html_text(f"{env.player_name}: {player_win_points}点\n")
+        button_tsumo.hide()
+        button_chii.hide()
+        button_pon.hide()
+        button_ron.hide()
+        button_pass.hide()
+        env.player_points += player_win_points
+        env.opponent_points -= player_win_points
+        draw_ui_player_labels()
+        # Reset
+        player_win_points = 0
+        player_win_yaku = []
+        for s in player_tile_slots:
+            s.set_tooltip("", delay=0.1)
 
     def player_ron():
-        global player_win_points, player_win_yaku
-        env.game_complete = True
-        game_state_text_box.set_text("====================================\n")
-        game_state_text_box.append_html_text(f"ロン！点数: {player_win_points}点\n")
-        for yaku in player_win_yaku:
-            game_state_text_box.append_html_text(f"{yaku}\n")
-        button_tsumo.hide()
-        button_chii.hide()
-        button_pon.hide()
-        button_ron.hide()
-        button_pass.hide()
-        player_win_points = 0
-        player_win_yaku = []
-        for s in player_tile_slots:
-            s.set_tooltip("", delay=0.1)
+        player_win(is_tsumo=False)
 
     def player_tsumo():
-        global player_win_points, player_win_yaku
-        env.game_complete = True
-        game_state_text_box.set_text("====================================\n")
-        game_state_text_box.append_html_text(f"ツモ！点数: {player_win_points}点\n")
-        for yaku in player_win_yaku:
-            game_state_text_box.append_html_text(f"{yaku}\n")
-        button_tsumo.hide()
-        button_chii.hide()
-        button_pon.hide()
-        button_ron.hide()
-        button_pass.hide()
-        player_win_points = 0
-        player_win_yaku = []
-        for s in player_tile_slots:
-            s.set_tooltip("", delay=0.1)
+        player_win(is_tsumo=True)
 
 
     def player_pon():
         for t in env.player_hand:
-            if (t.何者, t.その上の数字) == (tile_discarded_by_opponent.何者, tile_discarded_by_opponent.その上の数字) and not t.副露:
+            if (t.何者, t.その上の数字) == (last_tile_discarded_by_opponent.何者, last_tile_discarded_by_opponent.その上の数字) and not t.副露:
                 t.mark_as_exposed()
+                break
         for t in env.player_hand:
-            if (t.何者, t.その上の数字) == (tile_discarded_by_opponent.何者, tile_discarded_by_opponent.その上の数字) and not t.副露:
+            if (t.何者, t.その上の数字) == (last_tile_discarded_by_opponent.何者, last_tile_discarded_by_opponent.その上の数字) and not t.副露:
                 t.mark_as_exposed()
-        tile_discarded_by_opponent.mark_as_exposed()
-        env.player_hand.append(tile_discarded_by_opponent)
+                break
+        last_tile_discarded_by_opponent.mark_as_exposed()
+        env.player_hand.append(last_tile_discarded_by_opponent)
         env.discard_pile_opponent.pop()
 
         env.current_actor = 0
@@ -636,8 +700,8 @@ if __name__ == "__main__":
                 t.mark_as_exposed()
                 break
 
-        tile_discarded_by_opponent.mark_as_exposed()
-        env.player_hand.append(tile_discarded_by_opponent)
+        last_tile_discarded_by_opponent.mark_as_exposed()
+        env.player_hand.append(last_tile_discarded_by_opponent)
         env.discard_pile_opponent.pop()
 
         env.current_actor = 0
@@ -687,7 +751,12 @@ if __name__ == "__main__":
             player_win_yaku = []
         elif env.current_actor == 0:
             # Cancelled tsumo
-            pass
+            player_win_points = 0
+            player_win_yaku = []
+            button_tsumo.hide()
+            button_chii.hide()
+            button_pon.hide()
+            button_pass.hide()
 
 
 
@@ -743,6 +812,8 @@ if __name__ == "__main__":
     button_pass.hide()
 
 
+    start_new_game(reset_points=True)
+    draw_ui_player_labels()
 
     while running:
         time_delta = clock.tick(60)/1000.0
@@ -834,14 +905,19 @@ if __name__ == "__main__":
                 # character selection and party member swap
                 for index, image_slot in enumerate(player_tile_slots):
                     if image_slot.rect.collidepoint(event.pos) and env.current_actor == 0 and not image_slot.set_temp_marked and not env.game_complete:
-                        # discard the tile
-                        tile = env.player_hand.pop(index)
-                        env.discard_pile_player.append(tile)
-                        draw_ui_player_hand()
-                        draw_ui_player_discarded_tiles()
-                        button_tsumo.hide()
-                        button_pass.hide()
-                        progress_opponent_turn()
+                        if not env.player_hand[index].副露:
+                            # discard the tile
+                            tile = env.player_hand.pop(index)
+                            env.discard_pile_player.append(tile)
+                            last_tile_discarded_by_player = tile
+                            draw_ui_player_hand()
+                            draw_ui_player_discarded_tiles()
+                            button_tsumo.hide()
+                            button_pass.hide()
+                            progress_opponent_turn()
+                        else:
+                            pass
+                            # print("You can not discard an exposed tile!")
 
 
             if event.type == pygame_gui.UI_BUTTON_PRESSED:
