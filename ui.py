@@ -38,7 +38,8 @@ class Env:
         self.opponent_points = 25000
         self.starting_points = 25000 
 
-    def start_new_game(self):
+    def start_new_game(self, opponent_name: str):
+        self.opponent_name = opponent_name
         self.generate_pile()
         # give 13 tiles for each player
         self.player_hand = self.山[:13]
@@ -441,15 +442,16 @@ if __name__ == "__main__":
                 player_tile_slots[i].set_image(new_image)
 
 
-    def start_new_game(reset_points: bool = False):
+    def start_new_game(reset_points: bool = False, opponent_name: str = ""):
         global player_win_points, player_win_yaku
-        env.start_new_game()
+        env.start_new_game(opponent_name)
         new_tile = env.player_draw_tile()
         draw_ui_player_hand()
         player_check_discard_what_to_tenpai()
         draw_ui_opponent_hand()
         draw_ui_player_discarded_tiles()
         draw_ui_opponent_discarded_tiles()
+        draw_ui_player_labels()
         game_state_text_box.set_text("")
         if reset_points:
             env.player_points = env.starting_points
@@ -885,11 +887,10 @@ if __name__ == "__main__":
     #                                     manager=ui_manager,
     #                                     tool_tip_text = "Some tool tip text.")
 
-    new_game_button = pygame_gui.elements.UIButton(relative_rect=pygame.Rect((1100, 180), (150, 35)),
+    new_game_button = pygame_gui.elements.UIButton(relative_rect=pygame.Rect((1100, 100), (150, 35)),
                                                    text='Start New Game',
                                                    manager=ui_manager,
-                                                   tool_tip_text="Some tool tip text.",
-                                                   command=start_new_game)
+                                                   tool_tip_text="Some tool tip text.")
 
     button_tsumo = pygame_gui.elements.UIButton(relative_rect=pygame.Rect((470, 820), (120, 60)),
                                                    text='ツモ',
@@ -928,7 +929,19 @@ if __name__ == "__main__":
     button_pass.hide()
 
 
-    start_new_game(reset_points=True)
+    agent_list = [f for f in os.listdir("./DQN_agents") if os.path.isfile(os.path.join("./DQN_agents", f))]
+    dqn_agent_selection_menu = pygame_gui.elements.UIDropDownMenu(agent_list, agent_list[0], 
+                                                                  relative_rect=pygame.Rect((1100, 150), (150, 35)),
+                                                                  manager=ui_manager)
+
+    reload_hiruchaaru_button = pygame_gui.elements.UIButton(relative_rect=pygame.Rect((1260, 150), (150, 35)),
+                                                   text='Reload Agent',
+                                                   manager=ui_manager,
+                                                   tool_tip_text="Some tool tip text.")
+
+
+
+    start_new_game(reset_points=True, opponent_name=dqn_agent_selection_menu.selected_option[0].split('.')[0])
     draw_ui_player_labels()
 
     while running:
@@ -1037,7 +1050,13 @@ if __name__ == "__main__":
 
 
             if event.type == pygame_gui.UI_BUTTON_PRESSED:
-                pass
+                if event.ui_element == new_game_button:
+                    start_new_game(reset_points=False, opponent_name=dqn_agent_selection_menu.selected_option[0].split('.')[0])
+                if event.ui_element == reload_hiruchaaru_button:
+                    env.opponent_name = dqn_agent_selection_menu.selected_option[0].split('.')[0]
+                    agent_path = "./DQN_agents/" + dqn_agent_selection_menu.selected_option[0]
+                    dqn_agent.model.load_state_dict(torch.load(agent_path, map_location="cpu"))
+                    start_new_game(reset_points=True, opponent_name=dqn_agent_selection_menu.selected_option[0].split('.')[0])
 
             if event.type == pygame_gui.UI_TEXT_BOX_LINK_CLICKED:
                 pass
