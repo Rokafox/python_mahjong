@@ -376,13 +376,25 @@ if __name__ == "__main__":
 
 
     def draw_ui_opponent_hand():
+        image_tile_hidden = pygame.image.load("asset/tile_hidden_questionmark.png")
         env.opponent_hand.sort(key=lambda x: (x.sort_order, x.その上の数字))
         for i, t in enumerate(env.opponent_hand):
             image_path = t.get_asset()
             try:
                 image_surface = pygame.image.load(image_path)
                 opponent_tile_slots[i].set_temp_marked = False
-                opponent_tile_slots[i].set_image(image_surface)
+                if env.game_complete:
+                    if not t.副露:
+                        opponent_tile_slots[i].set_image(image_surface)
+                    else:
+                        new_image = add_outline_to_image(image_surface, (186, 85, 211), 2)
+                        opponent_tile_slots[i].set_image(new_image)
+                else:
+                    if not t.副露:
+                        opponent_tile_slots[i].set_image(image_tile_hidden)
+                    else:
+                        new_image = add_outline_to_image(image_surface, (186, 85, 211), 2)
+                        opponent_tile_slots[i].set_image(new_image)
             except pygame.error as e:
                 print(f"Error loading image {image_path}: {e}")
         if len(env.opponent_hand) < 14:
@@ -438,7 +450,7 @@ if __name__ == "__main__":
         draw_ui_opponent_hand()
         draw_ui_player_discarded_tiles()
         draw_ui_opponent_discarded_tiles()
-        game_state_text_box.set_text("====================================\n")
+        game_state_text_box.set_text("")
         if reset_points:
             env.player_points = env.starting_points
             env.opponent_points = env.starting_points
@@ -468,8 +480,6 @@ if __name__ == "__main__":
         for s in player_tile_slots:
             s.set_tooltip("", delay=0.1)
         player_can_call = False
-        env.current_actor = 1
-        env.turn += 1
 
         # Opponent Ron
         temp_opponent_hand = env.opponent_hand.copy()
@@ -478,7 +488,6 @@ if __name__ == "__main__":
         if c0:
             # opponent win by ron
             env.game_complete = True
-            game_state_text_box.set_text("====================================\n")
             game_state_text_box.append_html_text(f"{env.opponent_name}: ロン！\n")
             game_state_text_box.append_html_text(f"{env.opponent_name}: {' '.join(b0)}\n")
             game_state_text_box.append_html_text(f"{env.opponent_name}: {a0}点\n")
@@ -498,36 +507,145 @@ if __name__ == "__main__":
             return None
 
 
-        # Opponent draw a tile
-        tenpai_before_draw, list_of_tanpai = 聴牌ですか(env.opponent_hand, env.opponent_seat)
-        new_tile = env.opponent_draw_tile()
-        newly_drawn_tile_index = env._tile_to_index(new_tile)
-        
+        # Check if opponent can pon or chii
+        hiruchaaru_to_pon: bool = False
+        hiruchaaru_to_chii: bool = False
+        # pon
+        if len([t for t in env.opponent_hand if not t.副露]) > 1:
+            same_tile_count = 0
+            same_tiles = []
+            for i, tile in enumerate(env.opponent_hand):
+                if (tile.何者, tile.その上の数字) == (last_tile_discarded_by_player.何者, last_tile_discarded_by_player.その上の数字) and not tile.副露:
+                    same_tile_count += 1
+                    same_tiles.append(i)
+            if same_tile_count >= 2:
+                # can pon
+                valid_actions: list = env.get_valid_actions(-1)
+                valid_actions.remove(36)
+                assert 34 in valid_actions and 35 in valid_actions, "34 do nothing 35 pon 36 chii"
+                action: int
+                action, full_dict = dqn_agent.act(env._get_state(ndtidx=env._tile_to_index(last_tile_discarded_by_player)), valid_actions)
+                if action == 35:
+                    game_state_text_box.append_html_text(f"{env.opponent_name}: ポン！\n")
+                    # Mark the 2 tiles in agent's hand as 副露
+                    for i in sorted(same_tiles[:2], reverse=True):
+                        env.opponent_hand[i].mark_as_exposed()
+                    
+                    # Add the discarded tile to agent's hand and mark it as 副露
+                    last_tile_discarded_by_player.mark_as_exposed()
+                    env.opponent_hand.append(last_tile_discarded_by_player)
+                    
+                    # Remove the discarded tile from the discard pile
+                    env.discard_pile_player.pop()
+                    hiruchaaru_to_pon = True
 
-        # Opponent tsumo
-        a, b, c = 点数計算(env.opponent_hand, env.opponent_seat) # This func returns 点数int, 完成した役list, 和了形bool
-        if c:
-            # opponent win by tsumo
-            env.game_complete = True
-            game_state_text_box.set_text("====================================\n")
-            game_state_text_box.append_html_text(f"{env.opponent_name}: ツモ！\n")
-            game_state_text_box.append_html_text(f"{env.opponent_name}: {' '.join(b)}\n")
-            game_state_text_box.append_html_text(f"{env.opponent_name}: {a}点\n")
-            button_tsumo.hide()
-            button_chii.hide()
-            button_pon.hide()
-            button_ron.hide()
-            button_pass.hide()
-            player_win_points = 0
-            player_win_yaku = []
-            for s in player_tile_slots:
-                s.set_tooltip("", delay=0.1)
-            draw_ui_opponent_hand()
-            env.opponent_points += a
-            env.player_points -= a
-            draw_ui_player_labels()
-            return None
 
+                else: # action 34
+                    pass
+        # chii
+        if len([t for t in env.opponent_hand if not t.副露]) > 2:
+            can_chii = False
+            chii_tiles = []
+            
+            if "中張牌" in last_tile_discarded_by_player.固有状態:
+                dt_num = last_tile_discarded_by_player.その上の数字
+                discarded_tile_idx = env._tile_to_index(last_tile_discarded_by_player)
+                possible_sequence = [(last_tile_discarded_by_player.何者, dt_num-1), (last_tile_discarded_by_player.何者, dt_num+1)] # [n-1,n,n+1]
+                
+                # print(f"Checking sequence: {possible_sequence}")
+                # Checking sequence: [('筒子', 6), ('筒子', 7)]
+                check = 0
+                # check if both these tiles are in the hand
+                for combo in possible_sequence:
+                    # combo: ('筒子', 6) then ('筒子', 7)
+                    for p in env.opponent_hand:
+                        if p.何者 == combo[0] and p.その上の数字 == combo[1] and not p.副露:
+                            check += 1
+                            chii_tiles.append(p)
+                            break
+                assert check <= 2, "No, not happening"
+                if check == 2:
+                    can_chii = True
+                else:
+                    chii_tiles.clear()
+                            
+
+                if can_chii:
+                    valid_actions: list = env.get_valid_actions(-1)
+                    valid_actions.remove(35)
+                    assert 34 in valid_actions and 36 in valid_actions, "34 do nothing 35 pon 36 chii"
+                    action: int
+                    action, full_dict = dqn_agent.act(env._get_state(ndtidx=discarded_tile_idx), valid_actions)
+                    if action == 36:
+                        game_state_text_box.append_html_text(f"{env.opponent_name}: チー！\n")
+                        for t in env.opponent_hand:
+                            if (t.何者, t.その上の数字) == (chii_tiles[0].何者, chii_tiles[0].その上の数字) and not t.副露:
+                                t.mark_as_exposed()
+                                break
+                        for t in env.opponent_hand:
+                            if (t.何者, t.その上の数字) == (chii_tiles[1].何者, chii_tiles[1].その上の数字) and not t.副露:
+                                t.mark_as_exposed()
+                                break
+
+                        last_tile_discarded_by_player.mark_as_exposed()
+                        env.opponent_hand.append(last_tile_discarded_by_player)
+                        env.discard_pile_player.pop()
+                        hiruchaaru_to_chii = True
+                    else:
+                        pass
+
+
+        env.current_actor = 1
+        env.turn += 1
+        newly_drawn_tile_index: int = -1
+        tenpai_before_draw: bool = False
+
+        if not hiruchaaru_to_pon and not hiruchaaru_to_chii:
+            if len(env.discard_pile_opponent) < 40:
+                # Opponent draw a tile
+                tenpai_before_draw, list_of_tanpai = 聴牌ですか(env.opponent_hand, env.opponent_seat)
+                new_tile = env.opponent_draw_tile()
+                newly_drawn_tile_index = env._tile_to_index(new_tile)
+                
+
+                # Opponent tsumo
+                a, b, c = 点数計算(env.opponent_hand, env.opponent_seat) # This func returns 点数int, 完成した役list, 和了形bool
+                if c:
+                    # opponent win by tsumo
+                    env.game_complete = True
+                    game_state_text_box.append_html_text(f"{env.opponent_name}: ツモ！\n")
+                    game_state_text_box.append_html_text(f"{env.opponent_name}: {' '.join(b)}\n")
+                    game_state_text_box.append_html_text(f"{env.opponent_name}: {a}点\n")
+                    button_tsumo.hide()
+                    button_chii.hide()
+                    button_pon.hide()
+                    button_ron.hide()
+                    button_pass.hide()
+                    player_win_points = 0
+                    player_win_yaku = []
+                    for s in player_tile_slots:
+                        s.set_tooltip("", delay=0.1)
+                    draw_ui_opponent_hand()
+                    env.opponent_points += a
+                    env.player_points -= a
+                    draw_ui_player_labels()
+                    return None
+            else:
+                game_state_text_box.append_html_text("無役終局\n")
+                env.game_complete = True
+                button_tsumo.hide()
+                button_chii.hide()
+                button_pon.hide()
+                button_ron.hide()
+                button_pass.hide()
+                player_win_points = 0
+                player_win_yaku = []
+                for s in player_tile_slots:
+                    s.set_tooltip("", delay=0.1)
+                return None
+        else:
+            # Hiruchaaru poned or chiied, so they do not draw, but need to discard.
+            pass
 
         valid_actions: list = env.get_valid_actions(extra_tile_idx=newly_drawn_tile_index,
                                                      tenpai=tenpai_before_draw)
@@ -535,7 +653,7 @@ if __name__ == "__main__":
         action: int
         action, full_dict = dqn_agent.act(env._get_state(), valid_actions)
         # print(f"Opponent action: {action}")
-        # print(env._index_to_tile_type(action))
+        # print(env._index_to_tile_type(action))discarded_tile
         # print(tile_type) # ('筒子', 5)
         discarded_tile = None
         for t in [t for t in env.opponent_hand if not t.副露]:
@@ -552,8 +670,11 @@ if __name__ == "__main__":
         env.discard_pile_opponent.append(discarded_tile)
         env.opponent_hand.remove(discarded_tile)
         draw_ui_opponent_discarded_tiles()
+        if hiruchaaru_to_chii or hiruchaaru_to_pon:
+            draw_ui_opponent_hand()
+            draw_ui_player_discarded_tiles()
 
-        # Check if agent can ロン (win) with this tile
+        # Check if player can ron with this tile
         temp_hand = env.player_hand.copy()
         temp_hand.append(discarded_tile)
         点数, 役, 和了形 = 点数計算(temp_hand, env.player_seat)
@@ -617,7 +738,6 @@ if __name__ == "__main__":
                 draw_ui_player_discarded_tiles()
                 draw_ui_opponent_discarded_tiles()
             else:
-                game_state_text_box.set_text("====================================\n")
                 game_state_text_box.append_html_text("無役終局\n")
                 env.game_complete = True
                 button_tsumo.hide()
@@ -639,7 +759,6 @@ if __name__ == "__main__":
         global player_win_points, player_win_yaku
         env.game_complete = True
         win_type = "ツモ" if is_tsumo else "ロン"
-        game_state_text_box.set_text("====================================\n")
         game_state_text_box.append_html_text(f"{env.player_name}: {win_type}！\n")
         game_state_text_box.append_html_text(f"{env.player_name}: {' '.join(player_win_yaku)}\n")
         game_state_text_box.append_html_text(f"{env.player_name}: {player_win_points}点\n")
@@ -651,6 +770,7 @@ if __name__ == "__main__":
         env.player_points += player_win_points
         env.opponent_points -= player_win_points
         draw_ui_player_labels()
+        draw_ui_opponent_hand()
         # Reset
         player_win_points = 0
         player_win_yaku = []
@@ -673,6 +793,8 @@ if __name__ == "__main__":
             if (t.何者, t.その上の数字) == (last_tile_discarded_by_opponent.何者, last_tile_discarded_by_opponent.その上の数字) and not t.副露:
                 t.mark_as_exposed()
                 break
+
+        game_state_text_box.append_html_text(f"{env.player_name}: ポン！\n")
         last_tile_discarded_by_opponent.mark_as_exposed()
         env.player_hand.append(last_tile_discarded_by_opponent)
         env.discard_pile_opponent.pop()
@@ -700,6 +822,7 @@ if __name__ == "__main__":
                 t.mark_as_exposed()
                 break
 
+        game_state_text_box.append_html_text(f"{env.player_name}: チー！\n")
         last_tile_discarded_by_opponent.mark_as_exposed()
         env.player_hand.append(last_tile_discarded_by_opponent)
         env.discard_pile_opponent.pop()
@@ -736,7 +859,6 @@ if __name__ == "__main__":
                 draw_ui_player_discarded_tiles()
                 draw_ui_opponent_discarded_tiles()
             else:
-                game_state_text_box.set_text("====================================\n")
                 game_state_text_box.append_html_text("無役終局\n")
                 env.game_complete = True
 
