@@ -742,23 +742,16 @@ if __name__ == "__main__":
 
                 for s in player_tile_slots:
                     s.set_tooltip("", delay=0.1)
-            button_tsumo.hide()
-            button_chii.hide()
-            button_pon.hide()
             button_ron.hide()
-            button_pass.hide()
-            player_win_points = 0
-            player_win_yaku = []
         elif env.current_actor == 0:
             # Cancelled tsumo
-            player_win_points = 0
-            player_win_yaku = []
-            button_tsumo.hide()
-            button_chii.hide()
-            button_pon.hide()
-            button_pass.hide()
-
-
+            pass
+        player_win_points = 0
+        player_win_yaku = []
+        button_tsumo.hide()
+        button_chii.hide()
+        button_pon.hide()
+        button_pass.hide()
 
 
     # draw_button = pygame_gui.elements.UIButton(relative_rect=pygame.Rect((1100, 100), (150, 35)),
@@ -769,6 +762,7 @@ if __name__ == "__main__":
     #                                     text='Discard Tile',
     #                                     manager=ui_manager,
     #                                     tool_tip_text = "Some tool tip text.")
+
     new_game_button = pygame_gui.elements.UIButton(relative_rect=pygame.Rect((1100, 180), (150, 35)),
                                                    text='Start New Game',
                                                    manager=ui_manager,
