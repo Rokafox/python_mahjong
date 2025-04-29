@@ -451,11 +451,11 @@ if __name__ == "__main__":
         draw_ui_opponent_hand()
         draw_ui_player_discarded_tiles()
         draw_ui_opponent_discarded_tiles()
-        draw_ui_player_labels()
         game_state_text_box.set_text("")
         if reset_points:
             env.player_points = env.starting_points
             env.opponent_points = env.starting_points
+        draw_ui_player_labels()
         button_tsumo.hide()
         button_chii.hide()
         button_pon.hide()
