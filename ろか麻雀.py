@@ -663,8 +663,104 @@ def 三色同刻(tiles: list[麻雀牌]) -> bool:
     return False
 
 
+
+def 三色小同刻(tiles: list[麻雀牌]) -> bool:
+    """
+    三色小同刻: For suit in ("萬子", "筒子", "索子"), 2 of them must form triplets,
+    1 of them must form a pair. 3 triplets will return false.
+    """
+    counter = Counter((t.何者, t.その上の数字) for t in tiles)
+    # Iterate through the possible numbers
+    for number in set(t.その上の数字 for t in tiles):
+        # Check if we have sufficient tiles of this number in different suits
+        suit_counts = {
+            suit: counter.get((suit, number), 0)
+            for suit in ("萬子", "筒子", "索子")
+        }
+        
+        # We need suits with 3+ tiles and possibly 1 suit with exactly 2 tiles
+        triplet_suits = [suit for suit, count in suit_counts.items() if count >= 3]
+        pair_suits = [suit for suit, count in suit_counts.items() if count == 2]
+        
+        # Handle the case where we have 3 suits with 3+ tiles
+        if len(triplet_suits) == 3:
+            # Try all combinations of 2 triplets and 1 pair
+            for pair_suit in triplet_suits:
+                # Create a copy of tiles to mark as removed
+                temp_tiles = deepcopy(tiles)
+                
+                # Mark 3 tiles for each of the 2 triplet suits
+                for suit in triplet_suits:
+                    if suit != pair_suit:  # Skip the one we're using as a pair
+                        count = 0
+                        for t in temp_tiles:
+                            if t.何者 == suit and t.その上の数字 == number and not t.marked_as_removed:
+                                t.marked_as_removed = True
+                                count += 1
+                                if count == 3:  # Mark exactly 3 tiles of each triplet suit
+                                    break
+                
+                # Mark 2 tiles for the pair suit
+                count = 0
+                for t in temp_tiles:
+                    if t.何者 == pair_suit and t.その上の数字 == number and not t.marked_as_removed:
+                        t.marked_as_removed = True
+                        count += 1
+                        if count == 2:  # Mark exactly 2 tiles of the pair suit
+                            break
+                
+                # Check if remaining tiles can form a valid hand
+                if 面子スコア([t for t in temp_tiles if not t.marked_as_removed]) == 2:
+                    return True
+        
+        # Handle the standard case: exactly 2 triplets and 1 pair
+        elif len(triplet_suits) == 2 and len(pair_suits) == 1:
+            # Create a copy of tiles to mark as removed
+            temp_tiles = deepcopy(tiles)
+            
+            # Mark 3 tiles for each of the 2 triplet suits
+            for suit in triplet_suits:
+                count = 0
+                for t in temp_tiles:
+                    if t.何者 == suit and t.その上の数字 == number and not t.marked_as_removed:
+                        t.marked_as_removed = True
+                        count += 1
+                        if count == 3:  # Mark exactly 3 tiles of each triplet suit
+                            break
+            
+            # Mark 2 tiles for the pair suit
+            for suit in pair_suits:
+                count = 0
+                for t in temp_tiles:
+                    if t.何者 == suit and t.その上の数字 == number and not t.marked_as_removed:
+                        t.marked_as_removed = True
+                        count += 1
+                        if count == 2:  # Mark exactly 2 tiles of the pair suit
+                            break
+            
+            # Check if remaining tiles can form a valid hand
+            if 面子スコア([t for t in temp_tiles if not t.marked_as_removed]) == 2:
+                return True
+    
+    return False
+
+
+
 # 手牌 = [
-#     麻雀牌("萬子", 4, False), 麻雀牌("萬子", 5, False), 麻雀牌("萬子", 6, False), 
+#     麻雀牌("萬子", 6, False), 麻雀牌("萬子", 6, False), 麻雀牌("萬子", 6, False), 
+#     麻雀牌("萬子", 1, False), 麻雀牌("萬子", 1, False), 麻雀牌("萬子", 1, False),  
+#     麻雀牌("索子", 6, False), 麻雀牌("索子", 6, False), 麻雀牌("索子", 6, False),  
+#     麻雀牌("筒子", 6, False), 麻雀牌("筒子", 6, False), 麻雀牌("筒子", 6, False), 
+ 
+#     麻雀牌("萬子", 4, False),
+#     麻雀牌("萬子", 5, False)           
+# ]
+# print(三色同刻(手牌))
+# print(三色小同刻(手牌))
+
+
+# 手牌 = [
+#     麻雀牌("萬子", 6, False), 麻雀牌("萬子", 4, False), 麻雀牌("萬子", 5, False), 
 #     麻雀牌("萬子", 1, False), 麻雀牌("萬子", 1, False), 麻雀牌("萬子", 1, False),  
 #     麻雀牌("索子", 6, False), 麻雀牌("索子", 6, False), 麻雀牌("索子", 6, False),  
 #     麻雀牌("筒子", 6, False), 麻雀牌("筒子", 6, False), 麻雀牌("筒子", 6, False), 
@@ -672,7 +768,7 @@ def 三色同刻(tiles: list[麻雀牌]) -> bool:
 #     麻雀牌("萬子", 6, False),
 #     麻雀牌("萬子", 6, False)           
 # ]
-# print(三色同刻(手牌))
+# print(三色小同刻(手牌))
 
 
 def 三連刻(tiles: list[麻雀牌]) -> bool:
@@ -1171,6 +1267,10 @@ def 点数計算(tiles: list[麻雀牌], seat: int) -> tuple[int, list[str], boo
             score += 6000
             yaku.append("小三元")
             win = True
+        if 三色小同刻(tiles):
+            score += 6000
+            yaku.append("三色小同刻")
+            win = True
         if 大三元(tiles):
             score += 32000
             yaku.append("大三元")
@@ -1365,4 +1465,5 @@ def create_mahjong_tiles_from_line(line: str) -> list[麻雀牌]:
 
 
 if __name__ == "__main__":
-    generate_tenpai(100000)
+    pass
+    # generate_tenpai(100000)

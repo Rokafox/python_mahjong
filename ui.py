@@ -66,8 +66,8 @@ class Env:
         assert len(self.山) == 136 - 26
 
     def generate_pile(self):
-        # self.山 = 山を作成する()
-        self.山 = 基礎訓練山を作成する()
+        self.山 = 山を作成する()
+        # self.山 = 基礎訓練山を作成する()
 
     def player_draw_tile(self) -> Optional[麻雀牌]:
         if len(self.山) == 0:
