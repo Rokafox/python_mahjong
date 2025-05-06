@@ -165,14 +165,15 @@ class MahjongEnvironment:
         reward_extra = 0
         if self.add_tenpai_score:
             # 聴牌の場合、大量の報酬を与える
-            聴牌, 何の牌 = 聴牌ですか(self.手牌, self.seat)
-            if 聴牌:
-                reward_extra += 300
-                # print(f"聴牌:")
-                # for p in 何の牌:
-                #     print(f"{p.何者} {p.その上の数字}")
-                self.total_tennpai += len(何の牌)
-                reward_extra += len(何の牌) * 50
+            # NOTE: Check tenpai every turn is slow
+            # 聴牌, 何の牌 = 聴牌ですか(self.手牌, self.seat)
+            # if 聴牌:
+            #     reward_extra += 300
+            #     # print(f"聴牌:")
+            #     # for p in 何の牌:
+            #     #     print(f"{p.何者} {p.その上の数字}")
+            #     self.total_tennpai += len(何の牌)
+            #     reward_extra += len(何の牌) * 50
             pass
         
         # 面子スコア: 13 枚の手牌から完成面子（順子・刻子）の最大数を求めて
@@ -183,9 +184,9 @@ class MahjongEnvironment:
 
         # 対子スコア: 13 枚の手牌から完成対子の最大数を求めて
         # 0対子→0, 1対子→1, 2対子→2, 3対子→4, 4対子→8, 5対子→16, 6対子→32を返す。副露は数えない。
-        tuiz_score = 対子スコア(self.手牌)
-        self.tuiz_score += tuiz_score * 2
-        reward_extra += tuiz_score * 2
+        # tuiz_score = 対子スコア(self.手牌)
+        # self.tuiz_score += tuiz_score * 2
+        # reward_extra += tuiz_score * 2
 
         # Big penalty for having 4,5,6.
         # for t in self.手牌:
@@ -758,11 +759,13 @@ class DQNAgent:
 
 
 def train_agent(episodes: int = 4000, name: str = "agent",
-                device: str = "cpu", log_save_path: str = None) -> DQNAgent:
+                device: str = "cpu", save_model_every_this_episodes: int = 1000) -> DQNAgent:
     env = MahjongEnvironment()
     agent = DQNAgent(242, 34 + 3, device=device)
+    assert save_model_every_this_episodes >= 100
+    log_save_path = f"./log/train_{name}.csv"
     if os.path.exists(log_save_path):
-        raise FileExistsError(f"Log file {log_save_path} already exists. Choose a different name.")
+        raise FileExistsError(f"Log file {log_save_path} already exists.")
     if name and os.path.exists(f"./DQN_agents/{name}.pth"):
         agent.model.load_state_dict(torch.load(f"./DQN_agents/{name}.pth", map_location=device))
         agent.update_target_model()
@@ -797,7 +800,7 @@ def train_agent(episodes: int = 4000, name: str = "agent",
                     f.write(f"{ep+1},{envseat},{info['score']},{info['turn']},{agent.epsilon:.3f},{info['penalty_A']},{' '.join(str(x) for x in info['completeyaku'])},{info['mz_score']},{info['tuiz_score']},{info['tenpai']},{info['hand_when_complete']}\n")
 
                 # モデル保存
-                if (ep + 1) % 1000 == 0:
+                if (ep + 1) % save_model_every_this_episodes == 0:
                     save_path = f"./DQN_agents/{name}_{ep+1}.pth"
                     torch.save(agent.model.state_dict(), save_path)
                     print(f"[INFO] Agent saved: {save_path}")
@@ -807,10 +810,11 @@ def train_agent(episodes: int = 4000, name: str = "agent",
 
 
 def test_agent(episodes: int, model_path: str, 
-               device: str = "cpu", log_save_path: str = None) -> None:
+               device: str = "cpu") -> None:
     env = MahjongEnvironment()
     env.add_tenpai_score = False
     agent = DQNAgent(242, 34 + 3, device=device)
+    log_save_path = f"./log/test_{model_path.split('/')[-1].split('.')[0]}.csv"
     
     # Load pre-trained model
     if os.path.exists(model_path):
@@ -882,6 +886,5 @@ def test_agent(episodes: int, model_path: str,
 
 
 if __name__ == "__main__":
-    # trained_agent = train_agent(name="Kurt", device="cuda", log_save_path="./log/train.csv")
-    test_agent(episodes=5000, model_path="./DQN_agents/Kurt.pth", device="cuda",
-               log_save_path="./log/test_Kurt.csv")
+    trained_agent = train_agent(name="first_hiruchaaru", device="cuda")
+    # test_agent(episodes=5000, model_path="./DQN_agents/Kurt.pth", device="cuda")

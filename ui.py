@@ -233,8 +233,8 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"Error loading icon: {e}")
 
-    dqn_agent = DQNAgent(242, 34 + 3, device="cpu")
-    dqn_agent.model.load_state_dict(torch.load("./DQN_agents/Agent.pth", map_location="cpu"))
+    dqn_agent = DQNAgent(242, 34 + 3, device="cuda")
+    dqn_agent.model.load_state_dict(torch.load("./DQN_agents/Agent.pth", map_location="cuda"))
     dqn_agent.epsilon = 0
 
     print("Starting!")
