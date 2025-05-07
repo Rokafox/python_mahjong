@@ -974,7 +974,7 @@ def test_agent(episodes: int, model_path: str,
         if os.path.exists(log_save_path):
             raise FileExistsError(f"Log file {log_save_path} already exists. Please choose a different name.")
         with open(log_save_path, "a") as f:
-            f.write("Episode,Seat,Score,Turn,Yaku,MZ_Score,TZ_Score,Tenpai,HandComplete\n")
+            f.write("Episode,Seat,Score,Turn,Yaku,MZ_Score,TEZ_Score,TAZ_Score,Tenpai,HandComplete\n")
     
     # Statistics tracking
     tenpai_count = 0
@@ -1008,7 +1008,7 @@ def test_agent(episodes: int, model_path: str,
                     with open(log_save_path, "a") as f:
                         f.write(f"{ep+1},{envseat},{info['score']},{info['turn']},"
                                 f"{' '.join(str(x) for x in info['completeyaku'])},"
-                                f"{info['mz_score']},{info['tuiz_score']},"
+                                f"{info['mz_score']},{info['tuiz_score']},{info['taz_score']}"
                                 f"{info['tenpai']},{info['hand_when_complete']}\n")
                 
                 # Print progress
