@@ -344,19 +344,6 @@ def 搭子スコア(tiles: list[麻雀牌]) -> int:
                     c[(suit, num)] += 1
                     c[next_tile] += 1
         
-        # 搭子を作らない選択肢も考慮
-        for (suit, num), cnt in list(c.items()):
-            if cnt == 0:
-                continue
-            
-            # この牌を使わずに次へ
-            c[(suit, num)] -= 1
-            best = max(best, dfs(c))
-            c[(suit, num)] += 1
-            
-            # 一つ試せば十分（すべての牌について同じ操作を繰り返すと無駄なので）
-            break
-            
         memo[key] = best
         return best
     
