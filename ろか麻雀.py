@@ -299,6 +299,88 @@ def 対子スコア(tiles: list[麻雀牌]) -> int:
     return [0, 1, 2, 4, 8, 16, 32][pairs_count]
 
 
+def 搭子スコア(tiles: list[麻雀牌]) -> int:
+    """
+    搭子：例：(萬子4,萬子5),(索子1,索子2), same suit, with num diff 1
+    13 枚の手牌から完成搭子の最大数を求めて
+    0→0, 1→1, 2→2, 3→4, 4→8, 5→16, 6→32を返す。13枚ですので7+は有り得ない。
+    副露は数えない。
+    """
+    # 副露牌を除外
+    tiles = [t for t in tiles if not t.副露]
+    tiles.sort(key=lambda x: (x.sort_order, x.その上の数字))
+    
+    # 牌の種類と数字ごとのカウンタを作成
+    counter = Counter((t.何者, t.その上の数字) for t in tiles)
+    memo: dict[tuple[tuple[tuple[str, int], int], ...], int] = {}
+    数牌 = ("萬子", "筒子", "索子")
+    
+    def dfs(c: Counter) -> int:
+        """残りカウンタ c から作れる最大搭子数を返す（メモ化付き）"""
+        key = tuple(sorted((k, v) for k, v in c.items() if v))
+        if not key:             # 牌が残っていない
+            return 0
+        if key in memo:         # メモ化
+            return memo[key]
+        
+        best = 0
+        # すべての牌を起点に「搭子」を試す
+        for (suit, num), cnt in list(c.items()):
+            if cnt == 0:
+                continue
+            
+            # 搭子を試す (例: 1-2, 2-3, etc.)
+            if suit in 数牌 and num <= 8:
+                next_tile = (suit, num + 1)
+                if c[next_tile] > 0:
+                    # 搭子を取る
+                    c[(suit, num)] -= 1
+                    c[next_tile] -= 1
+                    
+                    # 再帰的に残りの牌から最大搭子数を求める
+                    best = max(best, 1 + dfs(c))
+                    
+                    # 搭子を戻す（バックトラック）
+                    c[(suit, num)] += 1
+                    c[next_tile] += 1
+        
+        # 搭子を作らない選択肢も考慮
+        for (suit, num), cnt in list(c.items()):
+            if cnt == 0:
+                continue
+            
+            # この牌を使わずに次へ
+            c[(suit, num)] -= 1
+            best = max(best, dfs(c))
+            c[(suit, num)] += 1
+            
+            # 一つ試せば十分（すべての牌について同じ操作を繰り返すと無駄なので）
+            break
+            
+        memo[key] = best
+        return best
+    
+    # 搭子の最大数を計算
+    tanki_count = dfs(counter)
+    
+    # 0〜6の搭子数を対応するスコアに変換
+    tanki_count = min(tanki_count, 6)  # 6以上は6として扱う
+    return [0, 1, 2, 4, 8, 16, 32][tanki_count]
+
+
+# 手牌 = [ 
+#     麻雀牌("萬子", 5, False), 麻雀牌("萬子", 4, False), 麻雀牌("萬子", 3, False),  
+# ]
+# print(搭子スコア(手牌)) # 1
+# 手牌 = [ 
+#     麻雀牌("萬子", 5, False), 麻雀牌("萬子", 5, False), 麻雀牌("萬子", 5, False),  
+# ]
+# print(搭子スコア(手牌)) # 0
+# 手牌 = [ 
+#     麻雀牌("萬子", 5, False), 麻雀牌("萬子", 4, False), 麻雀牌("萬子", 3, False),  麻雀牌("萬子", 2, False)
+# ]
+# print(搭子スコア(手牌)) # 2
+
 def 上がり形(tiles, process_marked_as_removed=False) -> bool:
     """
     Check if the given tiles can form a valid winning hand.
