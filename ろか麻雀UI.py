@@ -9,7 +9,7 @@ import os
 from typing import List, Dict, Tuple, Optional
 
 import torch
-from ろかAI import DQNAgent
+from ろかAI_v2 import DQNAgent
 from ろか麻雀 import nicely_print_tiles, 基礎訓練山を作成する, 山を作成する, 点数計算, 聴牌ですか, 麻雀牌
 
 
@@ -234,7 +234,6 @@ if __name__ == "__main__":
         print(f"Error loading icon: {e}")
 
     dqn_agent = DQNAgent(242, 34 + 3, device="cuda")
-    dqn_agent.model.load_state_dict(torch.load("./DQN_agents/Agent.pth", map_location="cuda"))
     dqn_agent.epsilon = 0
 
     print("Starting!")
@@ -930,6 +929,7 @@ if __name__ == "__main__":
 
 
     agent_list = [f for f in os.listdir("./DQN_agents") if os.path.isfile(os.path.join("./DQN_agents", f))]
+    dqn_agent.model.load_state_dict(torch.load(f"./DQN_agents/{agent_list[0]}", map_location="cuda"))
     dqn_agent_selection_menu = pygame_gui.elements.UIDropDownMenu(agent_list, agent_list[0], 
                                                                   relative_rect=pygame.Rect((1100, 150), (150, 35)),
                                                                   manager=ui_manager)

@@ -89,7 +89,7 @@ class MahjongEnvironment:
         for tile in self.discard_pile:
             discarded_tiles_counts[self._tile_to_index(tile)] += 1.0
         discarded_tiles_counts /= 4.0  # 正規化（最大4枚）
-        # NOTE: 他家の副露も捨て牌として考えればよい
+        # NOTE: 実戦中他家の副露も捨て牌として考えればよい
         new_discarded_tile_by_others = np.zeros(self.N_TILE_TYPES, dtype=np.float32)
         if ndtidx >= 0:
             new_discarded_tile_by_others[ndtidx] = 1.0
@@ -177,30 +177,34 @@ class MahjongEnvironment:
             #     reward_extra += len(何の牌) * 50
             pass
         
-        # 面子スコア: 13 枚の手牌から完成面子（順子・刻子）の最大数を求めて
-        # 0面子→0, 1面子→1, 2面子→2, 3面子→4, 4面子→8を返す。雀頭は数えない。
-        mz_score = 面子スコア(self.手牌)
-        self.mz_score += mz_score * 2
-        reward_extra += mz_score * 2
+        mz_score = int(面子スコア(self.手牌) * 8)
+        self.mz_score += mz_score
+        reward_extra += mz_score
 
-        tuiz_score = 対子スコア(self.手牌)
-        self.tuiz_score += tuiz_score * 1
-        reward_extra += tuiz_score * 1
+        tuiz_score = int(対子スコア(self.手牌) * 4)
+        self.tuiz_score += tuiz_score
+        reward_extra += tuiz_score
 
-        tatsu_score = 搭子スコア(self.手牌)
-        self.tatsu_score += tatsu_score * 1
-        reward_extra += tatsu_score * 1
+        tatsu_score = int(搭子スコア(self.手牌) * 4)
+        self.tatsu_score += tatsu_score
+        reward_extra += tatsu_score
 
-        # Big penalty for having 4,5,6.
+        # Penalty for having 4,5,6.
         # for t in self.手牌:
         #     if t.何者 in {"萬子", "筒子", "索子"} and t.その上の数字 in {4,5,6}:
-        #         reward_extra -= 10
-        #         self.penalty_A += 10
+        #         reward_extra -= 3
+        #         self.penalty_A += 3
 
-        # Big reward for having 1,2,3 and 7,8,9 and 字牌
+        # Reward for having 1,2,3 and 7,8,9 and 字牌
         # for t in self.手牌:
         #     if t.何者 in {"白ちゃん", "發ちゃん", "中ちゃん"}:
-        #         reward_extra += 10
+        #         reward_extra += 3
+
+        # Punishment for having exposed tiles
+        # the_exposed = [t for t in self.手牌 if t.副露]
+        # punishment_of_the_exposed = len(the_exposed) * 2
+        # reward_extra -= punishment_of_the_exposed
+        # self.penalty_A += punishment_of_the_exposed
 
         return reward_extra
 
@@ -243,7 +247,8 @@ class MahjongEnvironment:
         action: int
         action, full_dict = actor.act(self._get_state(), valid_actions)
         if self.add_tenpai_score:
-            reward -= 2  # base penalty
+            # reward -= 2  # base penalty
+            reward -= int(self.turn)
         tile_type = self._index_to_tile_type(action)
         # print(tile_type) # ('筒子', 5)
         target_tile = None
@@ -557,7 +562,7 @@ class PrioritizedReplayBuffer:
 
 
 class EpisodicMemory:
-    def __init__(self, capacity=50):
+    def __init__(self, capacity=300):
         self.capacity = capacity
         self.memory = []
         self.priorities = []
@@ -642,7 +647,7 @@ class DQNAgent:
         # Use prioritized replay buffer
         self.memory = PrioritizedReplayBuffer(capacity=50_000)
         # Add episodic memory for valuable game sequences
-        self.episodic_memory = EpisodicMemory(capacity=222)
+        self.episodic_memory = EpisodicMemory(capacity=3333)
         # Temporary storage for the current episode's transitions
         self.current_episode_transitions = []
 
@@ -718,7 +723,7 @@ class DQNAgent:
         # Periodically sample from episodic memory and add to main buffer
         if self._step_count % self.EPISODIC_MEMORY_REPLAY_FREQ == 0 and len(self.episodic_memory.memory) > 0:
             self._replay_from_episodic_memory()
-            print("Successful episode replayed.")
+            # print("Successful episode replayed.")
 
         if len(self.memory) < batch_size:
             return
@@ -834,8 +839,8 @@ class DQNAgent:
             self.epsilon *= self.epsilon_decay
 
 
-def train_agent(episodes: int = 4000, name: str = "agent",
-                device: str = "cpu", save_model_every_this_episodes: int = 1000) -> DQNAgent:
+def train_agent(episodes: int = 10000, name: str = "agent",
+                device: str = "cuda", save_model_every_this_episodes: int = 1000) -> DQNAgent:
     env = MahjongEnvironment()
     state_size = env.observation_space.shape[0] if hasattr(env, 'observation_space') and env.observation_space.shape else 242 # Use env spec if available
     action_size = env.action_space.n if hasattr(env, 'action_space') else 34 + 3 # Use env spec if available
@@ -864,7 +869,7 @@ def train_agent(episodes: int = 4000, name: str = "agent",
             agent.model.load_state_dict(torch.load(model_path, map_location=device))
             agent.update_target_model()
             # Optionally adjust epsilon if loading a trained agent
-            # agent.epsilon = 0.002 # Example: set to a low value for evaluation or fine-tuning
+            agent.epsilon = agent.epsilon_min * 0.8 # fine-tuning
             print(f"[INFO] Agent {name} loaded from {model_path}.")
             # If continuing training, might want to load prior episodic memory if saved
             # (Requires implementing save/load for episodic memory)
@@ -952,8 +957,7 @@ def train_agent(episodes: int = 4000, name: str = "agent",
     return agent
 
 
-def test_agent(episodes: int, model_path: str, 
-               device: str = "cpu") -> None:
+def test_agent(episodes: int, model_path: str, device: str = "cpu") -> None:
     env = MahjongEnvironment()
     env.add_tenpai_score = False
     agent = DQNAgent(242, 34 + 3, device=device)
@@ -974,7 +978,7 @@ def test_agent(episodes: int, model_path: str,
         if os.path.exists(log_save_path):
             raise FileExistsError(f"Log file {log_save_path} already exists. Please choose a different name.")
         with open(log_save_path, "a") as f:
-            f.write("Episode,Seat,Score,Turn,Yaku,MZ_Score,TEZ_Score,TAZ_Score,Tenpai,HandComplete\n")
+            f.write("Episode,Seat,Score,Turn,Yaku,MZ_Score,TEZ_Score,TAZ_Score,Tenpai,HandComplete,AgariRate\n")
     
     # Statistics tracking
     tenpai_count = 0
@@ -998,36 +1002,42 @@ def test_agent(episodes: int, model_path: str,
                 
                 # Track statistics
                 total_score += info['score']
-                # if 'tenpai' in info and info['tenpai'] > 0:
-                #     tenpai_count += 1
+                
                 if 'completeyaku' in info and info['completeyaku']:
                     agari += 1
+                
+                # Calculate current Agari rate
+                current_agari_rate = (agari / (ep + 1)) * 100
                 
                 # Log results
                 if log_save_path:
                     with open(log_save_path, "a") as f:
                         f.write(f"{ep+1},{envseat},{info['score']},{info['turn']},"
-                                f"{' '.join(str(x) for x in info['completeyaku'])},"
-                                f"{info['mz_score']},{info['tuiz_score']},{info['taz_score']}"
-                                f"{info['tenpai']},{info['hand_when_complete']}\n")
+                               f"{' '.join(str(x) for x in info['completeyaku'])},"
+                               f"{info['mz_score']},{info['tuiz_score']},{info['tatsu_score']},"
+                               f"{info['tenpai']},{info['hand_when_complete']},{current_agari_rate:.3f}\n")
                 
                 # Print progress
                 if (ep + 1) % 500 == 0:
                     print(f"[TEST] Episode {ep+1}/{episodes} completed. "
-                          f"Avg score: {total_score/(ep+1):.2f}, "
-                        #   f"Tenpai rate: {tenpai_count/(ep+1)*100:.2f}%, "
-                          f"Agari rate: {agari/(ep+1)*100:.2f}%")
+                         f"Avg score: {total_score/(ep+1):.2f}, "
+                         f"Agari rate: {current_agari_rate:.2f}%")
                 break
     
     # Final statistics
     print(f"\n[TEST COMPLETE] Total episodes: {episodes}")
     print(f"Average score: {total_score/episodes:.2f}")
-    # print(f"Tenpai rate: {tenpai_count/episodes*100:.3f}%")
     print(f"Agari rate: {agari/episodes*100:.3f}%")
 
 
 
+def train_and_test_pipeline():
+    agent_name = "second_hiruchaaru"
+    train_agent(name=agent_name, device="cuda", save_model_every_this_episodes=3000)
+    test_agent(episodes=5000, model_path=f"./DQN_agents/{agent_name}_final.pth", device="cuda")
+
+
 
 if __name__ == "__main__":
-    trained_agent = train_agent(name="school_hiruchaaru", device="cpu")
-    # test_agent(episodes=5000, model_path="./DQN_agents/Kurt.pth", device="cuda")
+    # train_and_test_pipeline()
+    test_agent(episodes=5000, model_path=f"./DQN_agents/second_hiruchaaru_6000.pth", device="cuda")
