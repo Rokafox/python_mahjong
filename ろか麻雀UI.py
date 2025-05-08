@@ -233,7 +233,12 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"Error loading icon: {e}")
 
-    dqn_agent = DQNAgent(242, 34 + 3, device="cuda")
+    try:
+        dqn_agent = DQNAgent(242, 34 + 3, device="cuda")
+    except Exception:
+        print("Cuda Device not found, using cpu version.")
+        dqn_agent = DQNAgent(242, 34 + 3, device="cpu")
+
     dqn_agent.epsilon = 0
 
     print("Starting!")
@@ -296,7 +301,7 @@ if __name__ == "__main__":
         ui_manager=ui_manager,
         start_pos=(100, 480),
         tile_size=(50, 68),
-        count=26,
+        count=27,
         spacing=3
     )
 
@@ -304,7 +309,7 @@ if __name__ == "__main__":
         ui_manager=ui_manager,
         start_pos=(100, 420 - 66),
         tile_size=(50, 68),
-        count=26,
+        count=27,
         spacing=3
     )
 
@@ -312,7 +317,7 @@ if __name__ == "__main__":
         ui_manager=ui_manager,
         start_pos=(100, 480 + 71),
         tile_size=(50, 68),
-        count=26,
+        count=27,
         spacing=3
     )
 
@@ -320,14 +325,14 @@ if __name__ == "__main__":
         ui_manager=ui_manager,
         start_pos=(100, 420 - 66 - 71),
         tile_size=(50, 68),
-        count=26,
+        count=27,
         spacing=3
     )
 
     player_name_label = pygame_gui.elements.UILabel(pygame.Rect((100, 800), (200, 50)),
                                                     text="Player",
                                                     manager=ui_manager)
-    opponent_name_label = pygame_gui.elements.UILabel(pygame.Rect((100, 50), (200, 50)),
+    opponent_name_label = pygame_gui.elements.UILabel(pygame.Rect((100, 50), (300, 50)),
                                                     text="Opponent",
                                                     manager=ui_manager)
 
@@ -365,10 +370,10 @@ if __name__ == "__main__":
             image_path = t.get_asset()
             try:
                 image_surface = pygame.image.load(image_path)
-                if i < 26:
+                if i < 27:
                     player_discarded_tiles_group_a[i].set_image(image_surface)
-                elif 26 <= i < 52:
-                    player_discarded_tiles_group_b[i - 26].set_image(image_surface)
+                elif 27 <= i < 54:
+                    player_discarded_tiles_group_b[i - 27].set_image(image_surface)
                 else:
                     raise Exception("Too many discarded tiles")
             except pygame.error as e:
@@ -411,10 +416,10 @@ if __name__ == "__main__":
             image_path = t.get_asset()
             try:
                 image_surface = pygame.image.load(image_path)
-                if i < 26:
+                if i < 27:
                     opponent_discarded_tiles_group_a[i].set_image(image_surface)
-                elif 26 <= i < 52:
-                    opponent_discarded_tiles_group_b[i - 26].set_image(image_surface)
+                elif 27 <= i < 54:
+                    opponent_discarded_tiles_group_b[i - 27].set_image(image_surface)
                 else:
                     raise Exception("Too many discarded tiles")
             except pygame.error as e:
@@ -512,7 +517,7 @@ if __name__ == "__main__":
         hiruchaaru_to_pon: bool = False
         hiruchaaru_to_chii: bool = False
         # pon
-        if len([t for t in env.opponent_hand if not t.副露]) > 1:
+        if len([t for t in env.opponent_hand if not t.副露]) > 1 and len(env.discard_pile_opponent) < 54:
             same_tile_count = 0
             same_tiles = []
             for i, tile in enumerate(env.opponent_hand):
@@ -544,7 +549,7 @@ if __name__ == "__main__":
                 else: # action 34
                     pass
         # chii
-        if len([t for t in env.opponent_hand if not t.副露]) > 2:
+        if len([t for t in env.opponent_hand if not t.副露]) > 2 and len(env.discard_pile_opponent) < 54:
             can_chii = False
             chii_tiles = []
             
@@ -602,7 +607,7 @@ if __name__ == "__main__":
         tenpai_before_draw: bool = False
 
         if not hiruchaaru_to_pon and not hiruchaaru_to_chii:
-            if len(env.discard_pile_opponent) < 52:
+            if len(env.discard_pile_opponent) < 54:
                 # Opponent draw a tile
                 tenpai_before_draw, list_of_tanpai = 聴牌ですか(env.opponent_hand, env.opponent_seat)
                 new_tile = env.opponent_draw_tile()
@@ -687,7 +692,7 @@ if __name__ == "__main__":
             player_win_yaku = 役
             player_can_call = True
 
-        if len([t for t in env.player_hand if not t.副露]) > 1 and len(env.discard_pile_player) < 52:
+        if len([t for t in env.player_hand if not t.副露]) > 1 and len(env.discard_pile_player) < 54:
             same_tile_count = 0
             for i, tile in enumerate(env.player_hand):
                 if (tile.何者, tile.その上の数字) == (discarded_tile.何者, discarded_tile.その上の数字) and not tile.副露:
@@ -697,7 +702,7 @@ if __name__ == "__main__":
                 button_pass.show()
                 player_can_call = True
 
-        if len([t for t in env.player_hand if not t.副露]) > 2 and len(env.discard_pile_player) < 52:
+        if len([t for t in env.player_hand if not t.副露]) > 2 and len(env.discard_pile_player) < 54:
             can_chii = False
             player_chii_tiles = []
             
@@ -724,7 +729,7 @@ if __name__ == "__main__":
         if player_can_call:
             return None
         else:
-            if len(env.discard_pile_player) < 52:
+            if len(env.discard_pile_player) < 54:
                 new_tile = env.player_draw_tile()
                 点数, 役, 和了形 = 点数計算(env.player_hand, env.player_seat)
                 if 和了形:
@@ -846,7 +851,7 @@ if __name__ == "__main__":
         global player_win_points, player_win_yaku
         if env.current_actor == 1:
             env.current_actor = 0
-            if len(env.discard_pile_player) < 52:
+            if len(env.discard_pile_player) < 54:
                 new_tile = env.player_draw_tile()
                 点数, 役, 和了形 = 点数計算(env.player_hand, env.player_seat)
                 if 和了形:
@@ -886,7 +891,7 @@ if __name__ == "__main__":
     #                                     manager=ui_manager,
     #                                     tool_tip_text = "Some tool tip text.")
 
-    new_game_button = pygame_gui.elements.UIButton(relative_rect=pygame.Rect((1100, 100), (150, 35)),
+    new_game_button = pygame_gui.elements.UIButton(relative_rect=pygame.Rect((1100, 85), (150, 50)),
                                                    text='Start New Game',
                                                    manager=ui_manager,
                                                    tool_tip_text="Some tool tip text.")
@@ -931,10 +936,10 @@ if __name__ == "__main__":
     agent_list = [f for f in os.listdir("./DQN_agents") if os.path.isfile(os.path.join("./DQN_agents", f))]
     dqn_agent.model.load_state_dict(torch.load(f"./DQN_agents/{agent_list[0]}", map_location="cuda"))
     dqn_agent_selection_menu = pygame_gui.elements.UIDropDownMenu(agent_list, agent_list[0], 
-                                                                  relative_rect=pygame.Rect((1100, 150), (150, 35)),
+                                                                  relative_rect=pygame.Rect((1100, 150), (300, 50)),
                                                                   manager=ui_manager)
 
-    reload_hiruchaaru_button = pygame_gui.elements.UIButton(relative_rect=pygame.Rect((1260, 150), (150, 35)),
+    reload_hiruchaaru_button = pygame_gui.elements.UIButton(relative_rect=pygame.Rect((1410, 150), (150, 50)),
                                                    text='Reload Agent',
                                                    manager=ui_manager,
                                                    tool_tip_text="Some tool tip text.")

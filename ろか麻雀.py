@@ -25,16 +25,11 @@ class 麻雀牌:
 
     def __str__(self):
         表示名 = ""
-        # if self.副露:
-        #     表示名 += "副露"
         表示名 += f"{self.何者}"
         if self.その上の数字 > 0:
             表示名 += f"{self.その上の数字}"
         if self.赤ドラ:
             表示名 += "赤ドラ"
-        # add passive state
-        # if self.固有状態:
-        #     表示名 += f" {self.固有状態}"
         return 表示名
 
     def 固有状態追加と検証(self) -> bool:
@@ -98,7 +93,7 @@ class 麻雀牌:
     def get_asset(self, yoko: bool = False) -> str:
         """
         牌に対応する PNG ファイルのパスを返す。
-        `yoko=True` で横向き画像 (-yoko 付き) を返す。
+        yoko=Trueで横向き画像 (-yoko 付き) を返す。
         赤ドラ (`self.赤ドラ=True`) のときは aka1/2/3 を優先して返す。
         """
         base_dir = "asset/tiles"
@@ -132,6 +127,20 @@ class 麻雀牌:
         raise ValueError(f"アセットファイルが見つかりません: {self}")
 
 
+
+def calculate_prefered_tile_percentage(tiles_list: list[麻雀牌], input_string: str) -> float:
+    """
+    Given a str of prefered tiles, how many tiles in tiles_list are prefered?
+    """
+    prefered_tiles_strs = [tile_str.strip() for tile_str in input_string.split(',')]
+    tiles_list_strs = [str(tile) for tile in tiles_list]
+    matches = 0
+    for t in tiles_list_strs:
+        if t in prefered_tiles_strs:
+            matches += 1
+    
+    percentage = (matches / len(tiles_list_strs)) * 100
+    return percentage
 
 
 def nicely_print_tiles(tiles: list[麻雀牌], sortit: bool = True) -> str:
