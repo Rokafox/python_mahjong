@@ -581,8 +581,9 @@ class EpisodicMemory:
     def sample(self, n=1):
         if not self.memory:
             return []
-        probs = np.array(self.priorities) / sum(self.priorities)
-        indices = np.random.choice(len(self.memory), min(n, len(self.memory)), p=probs, replace=False)
+        # probs = np.array(self.priorities) / sum(self.priorities)
+        # Random sample
+        indices = np.random.choice(len(self.memory), min(n, len(self.memory)), p=None, replace=False)
         return [self.memory[i] for i in indices]
 
 
@@ -708,7 +709,7 @@ class DQNAgent:
         # Add complete episodes with high rewards to episodic memory
         # This method is called externally after an episode finishes
         self.episodic_memory.add_episode(episode, reward)
-        print("Successful episode memorized.")
+        print("Episode memorized.")
 
     def _valid_mask_from_state(self, state_batch: torch.Tensor) -> torch.Tensor:
         B = state_batch.size(0)
@@ -747,9 +748,6 @@ class DQNAgent:
 
         # Filter out invalid actions (-1) if any were stored.
         # Note: It's better practice to avoid storing invalid actions in the first place
-        # or handle action validity before adding to buffer.
-        # However, if -1 was a placeholder for invalid actions, filter them here.
-        # Let's assume actions are 0 to action_size-1. -1 is truly invalid.
         valid_transition_mask = actions.squeeze(1) != -1
         # Apply mask to all tensors
         states = states[valid_transition_mask]
@@ -770,25 +768,14 @@ class DQNAgent:
         q_sa = self.model(states).gather(1, actions)
 
         with torch.no_grad():
-            # Get Q values for next states from the target model
             q_next = self.target_model(next_states) # [B', action_size] (B' <= batch_size)
-
-            # Apply valid action mask to q_next
             valid_mask = self._valid_mask_from_state(next_states) # [B', action_size]
-            # Set Q values of invalid actions to a very low number
             q_next[~valid_mask] = -1e9 # Mask out invalid actions
-
-            # Get the maximum Q value among the *valid* actions in the next state
             q_next_max = q_next.max(1, keepdim=True)[0] # [B', 1]
-
-            # Calculate the target Q value (y)
             y = rewards + self.gamma * q_next_max * (1 - dones) # [B', 1]
 
-        # TD error for prioritization
         td_error = torch.abs(q_sa - y).detach().cpu().numpy() # [B', 1] -> [B',]
 
-        # Update priorities in replay buffer
-        # Use the original indices from sampling, filtered down to match the valid transitions
         self.memory.update_priorities(filtered_indices, td_error) # td_error is already abs and 1e-6 + alpha is applied inside update_priorities
 
         # Weighted MSE loss
@@ -807,20 +794,11 @@ class DQNAgent:
 
         # Episodic memory replay happens at the start of replay() now.
 
-    # This method already exists and its logic seems correct for the purpose
     def _replay_from_episodic_memory(self, num_episodes=1):
-        # Sample successful episodes and add their transitions to the main buffer
-        # with a higher priority.
         # print(f"Replaying from episodic memory. Steps: {self._step_count}") # Debugging
         sampled_episodes = self.episodic_memory.sample(num_episodes)
         added_count = 0
         for episode in sampled_episodes:
-            # Assign a higher priority to transitions from successful episodes
-            # The exact value (2.0) is a hyperparameter.
-            # It should be significantly higher than the typical initial priority (1.0)
-            # or TD errors, ensuring these are sampled more often.
-            # The priority added here should be before applying alpha.
-            # Let's add 2.0 and let add() apply alpha.
             high_priority_base = 2.0
             for transition in episode:
                  # Add transition to main buffer with boosted priority
@@ -899,6 +877,9 @@ def train_agent(episodes: int = 10000, name: str = "agent",
 
                 # Add episode to episodic memory if successful
                 if ep_reward > agent.SUCCESS_REWARD_THRESHOLD:
+                # Or: Add to memory as long as it is a win.
+                # yaku_list: list = info.get('completeyaku', [])
+                # if len(yaku_list) > 0:
                     # Pass the collected transitions and the total reward
                     agent.add_episode_to_memory(agent.current_episode_transitions, ep_reward)
                     # print(f"Episode {ep+1}: Added to episodic memory with reward {ep_reward}") # Debugging
@@ -910,7 +891,7 @@ def train_agent(episodes: int = 10000, name: str = "agent",
                 # Log results
                 envseat = {0: "East", 1: "South", 2: "West", 3: "North"}.get(env.seat, "Unknown")
                 try:
-                    with open(log_save_path, "a") as f:
+                    with open(log_save_path, "a", encoding="utf-8") as f:
                         if write_header: # Write header only once
                             f.write("Episode,Seat,Score,Turn,Epsilon,penalty_A,Yaku,MZ_Score,TEZ_Score,TAZ_Score,Tenpai,HandComplete\n")
                             write_header = False # Don't write again
@@ -918,7 +899,7 @@ def train_agent(episodes: int = 10000, name: str = "agent",
                         log_values = [
                             ep+1,
                             envseat,
-                            info.get('score', 'N/A'), # Use .get to handle missing keys
+                            info.get('score', 'N/A'),
                             info.get('turn', 'N/A'),
                             f"{agent.epsilon:.3f}",
                             info.get('penalty_A', 'N/A'),
@@ -966,7 +947,7 @@ def test_agent(episodes: int, model_path: str, device: str = "cpu") -> None:
     # Load pre-trained model
     if os.path.exists(model_path):
         agent.model.load_state_dict(torch.load(model_path, map_location=device))
-        print(f"[INFO] テストモデル {model_path} をロードしました。")
+        print(f"[INFO] Model loaded.")
     else:
         raise FileNotFoundError(f"Model file {model_path} not found.")
     
@@ -977,7 +958,7 @@ def test_agent(episodes: int, model_path: str, device: str = "cpu") -> None:
     if log_save_path:
         if os.path.exists(log_save_path):
             raise FileExistsError(f"Log file {log_save_path} already exists. Please choose a different name.")
-        with open(log_save_path, "a") as f:
+        with open(log_save_path, "a", encoding="utf-8") as f:
             f.write("Episode,Seat,Score,Turn,Yaku,MZ_Score,TEZ_Score,TAZ_Score,Tenpai,HandComplete,AgariRate\n")
     
     # Statistics tracking
@@ -1039,5 +1020,5 @@ def train_and_test_pipeline():
 
 
 if __name__ == "__main__":
-    # train_and_test_pipeline()
-    test_agent(episodes=5000, model_path=f"./DQN_agents/second_hiruchaaru_6000.pth", device="cuda")
+    train_and_test_pipeline()
+    # test_agent(episodes=5000, model_path=f"./DQN_agents/second_hiruchaaru_6000.pth", device="cuda")
