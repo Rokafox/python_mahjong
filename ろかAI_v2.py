@@ -181,24 +181,24 @@ class MahjongEnvironment:
         self.mz_score += mz_score
         reward_extra += mz_score
 
-        tuiz_score = int(対子スコア(self.手牌) * 4)
-        self.tuiz_score += tuiz_score
-        reward_extra += tuiz_score
+        # tuiz_score = int(対子スコア(self.手牌) * 4)
+        # self.tuiz_score += tuiz_score
+        # reward_extra += tuiz_score
 
-        tatsu_score = int(搭子スコア(self.手牌) * 4)
-        self.tatsu_score += tatsu_score
-        reward_extra += tatsu_score
+        # tatsu_score = int(搭子スコア(self.手牌) * 4)
+        # self.tatsu_score += tatsu_score
+        # reward_extra += tatsu_score
 
         # Penalty for having 4,5,6.
-        # for t in self.手牌:
-        #     if t.何者 in {"萬子", "筒子", "索子"} and t.その上の数字 in {4,5,6}:
-        #         reward_extra -= 3
-        #         self.penalty_A += 3
+        for t in self.手牌:
+            if t.何者 in {"萬子", "筒子", "索子"} and t.その上の数字 in {4,5,6}:
+                reward_extra -= 10
+                self.penalty_A += 10
 
-        # Reward for having 1,2,3 and 7,8,9 and 字牌
-        # for t in self.手牌:
-        #     if t.何者 in {"白ちゃん", "發ちゃん", "中ちゃん"}:
-        #         reward_extra += 3
+        for t in self.手牌:
+            if "么九牌" in t.固有状態:
+                reward_extra += 3
+                self.penalty_A -= 3
 
         # Punishment for having exposed tiles
         # the_exposed = [t for t in self.手牌 if t.副露]
@@ -654,7 +654,7 @@ class DQNAgent:
 
         self.gamma = 0.99
         self.epsilon = 1.0
-        self.epsilon_min = 0.005
+        self.epsilon_min = 0.01
         self.epsilon_decay = 0.998
         self.learning_rate = 1e-3
 
@@ -817,7 +817,7 @@ class DQNAgent:
             self.epsilon *= self.epsilon_decay
 
 
-def train_agent(episodes: int = 10000, name: str = "agent",
+def train_agent(episodes: int = 3499, name: str = "agent",
                 device: str = "cuda", save_model_every_this_episodes: int = 1000) -> DQNAgent:
     env = MahjongEnvironment()
     state_size = env.observation_space.shape[0] if hasattr(env, 'observation_space') and env.observation_space.shape else 242 # Use env spec if available
@@ -1014,11 +1014,11 @@ def test_agent(episodes: int, model_path: str, device: str = "cpu") -> None:
 
 def train_and_test_pipeline():
     agent_name = "third_hiruchaaru"
-    train_agent(name=agent_name, device="cuda", save_model_every_this_episodes=3000)
+    train_agent(name=agent_name, device="cuda", save_model_every_this_episodes=250)
     test_agent(episodes=5000, model_path=f"./DQN_agents/{agent_name}_final.pth", device="cuda")
 
 
 
 if __name__ == "__main__":
-    train_and_test_pipeline()
-    # test_agent(episodes=5000, model_path=f"./DQN_agents/second_hiruchaaaru.pth", device="cuda")
+    # train_and_test_pipeline()
+    test_agent(episodes=5000, model_path=f"./DQN_agents/third_hiruchaaru_1250.pth", device="cuda")

@@ -295,33 +295,33 @@ if __name__ == "__main__":
     player_discarded_tiles_group_a = create_tile_slots(
         ui_manager=ui_manager,
         start_pos=(100, 480),
-        tile_size=(66, 90),
-        count=20,
-        spacing=4
+        tile_size=(50, 68),
+        count=26,
+        spacing=3
     )
 
     opponent_discarded_tiles_group_a = create_tile_slots(
         ui_manager=ui_manager,
         start_pos=(100, 420 - 66),
-        tile_size=(66, 90),
-        count=20,
-        spacing=4
+        tile_size=(50, 68),
+        count=26,
+        spacing=3
     )
 
     player_discarded_tiles_group_b = create_tile_slots(
         ui_manager=ui_manager,
-        start_pos=(100, 480 + 94),
-        tile_size=(66, 90),
-        count=20,
-        spacing=4
+        start_pos=(100, 480 + 71),
+        tile_size=(50, 68),
+        count=26,
+        spacing=3
     )
 
     opponent_discarded_tiles_group_b = create_tile_slots(
         ui_manager=ui_manager,
-        start_pos=(100, 420 - 66 - 94),
-        tile_size=(66, 90),
-        count=20,
-        spacing=4
+        start_pos=(100, 420 - 66 - 71),
+        tile_size=(50, 68),
+        count=26,
+        spacing=3
     )
 
     player_name_label = pygame_gui.elements.UILabel(pygame.Rect((100, 800), (200, 50)),
@@ -365,10 +365,10 @@ if __name__ == "__main__":
             image_path = t.get_asset()
             try:
                 image_surface = pygame.image.load(image_path)
-                if i < 20:
+                if i < 26:
                     player_discarded_tiles_group_a[i].set_image(image_surface)
-                elif 20 <= i < 40:
-                    player_discarded_tiles_group_b[i - 20].set_image(image_surface)
+                elif 26 <= i < 52:
+                    player_discarded_tiles_group_b[i - 26].set_image(image_surface)
                 else:
                     raise Exception("Too many discarded tiles")
             except pygame.error as e:
@@ -411,10 +411,10 @@ if __name__ == "__main__":
             image_path = t.get_asset()
             try:
                 image_surface = pygame.image.load(image_path)
-                if i < 20:
+                if i < 26:
                     opponent_discarded_tiles_group_a[i].set_image(image_surface)
-                elif 20 <= i < 40:
-                    opponent_discarded_tiles_group_b[i - 20].set_image(image_surface)
+                elif 26 <= i < 52:
+                    opponent_discarded_tiles_group_b[i - 26].set_image(image_surface)
                 else:
                     raise Exception("Too many discarded tiles")
             except pygame.error as e:
@@ -602,7 +602,7 @@ if __name__ == "__main__":
         tenpai_before_draw: bool = False
 
         if not hiruchaaru_to_pon and not hiruchaaru_to_chii:
-            if len(env.discard_pile_opponent) < 40:
+            if len(env.discard_pile_opponent) < 52:
                 # Opponent draw a tile
                 tenpai_before_draw, list_of_tanpai = 聴牌ですか(env.opponent_hand, env.opponent_seat)
                 new_tile = env.opponent_draw_tile()
@@ -687,7 +687,7 @@ if __name__ == "__main__":
             player_win_yaku = 役
             player_can_call = True
 
-        if len([t for t in env.player_hand if not t.副露]) > 1:
+        if len([t for t in env.player_hand if not t.副露]) > 1 and len(env.discard_pile_player) < 52:
             same_tile_count = 0
             for i, tile in enumerate(env.player_hand):
                 if (tile.何者, tile.その上の数字) == (discarded_tile.何者, discarded_tile.その上の数字) and not tile.副露:
@@ -697,7 +697,7 @@ if __name__ == "__main__":
                 button_pass.show()
                 player_can_call = True
 
-        if len([t for t in env.player_hand if not t.副露]) > 2:
+        if len([t for t in env.player_hand if not t.副露]) > 2 and len(env.discard_pile_player) < 52:
             can_chii = False
             player_chii_tiles = []
             
@@ -724,7 +724,7 @@ if __name__ == "__main__":
         if player_can_call:
             return None
         else:
-            if len(env.discard_pile_player) < 40:
+            if len(env.discard_pile_player) < 52:
                 new_tile = env.player_draw_tile()
                 点数, 役, 和了形 = 点数計算(env.player_hand, env.player_seat)
                 if 和了形:
@@ -846,7 +846,7 @@ if __name__ == "__main__":
         global player_win_points, player_win_yaku
         if env.current_actor == 1:
             env.current_actor = 0
-            if len(env.discard_pile_player) < 40:
+            if len(env.discard_pile_player) < 52:
                 new_tile = env.player_draw_tile()
                 点数, 役, 和了形 = 点数計算(env.player_hand, env.player_seat)
                 if 和了形:

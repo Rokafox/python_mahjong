@@ -7,7 +7,7 @@ import pandas as pd
 import sys
 
 # Use a fallback mechanism with multiple fonts
-plt.rcParams['font.family'] = ['DejaVu Sans', 'Noto Sans CJK JP', 'IPAGothic', 'Droid Sans Japanese']
+plt.rcParams['font.family'] = ['DejaVu Sans', 'Droid Sans Japanese']
 # Make sure Unicode minus signs render correctly
 plt.rcParams['axes.unicode_minus'] = False
 
