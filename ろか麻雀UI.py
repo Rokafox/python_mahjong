@@ -530,10 +530,10 @@ if __name__ == "__main__":
                     game_state_text_box.append_html_text(f"{env.opponent_name}: ポン！\n")
                     # Mark the 2 tiles in agent's hand as 副露
                     for i in sorted(same_tiles[:2], reverse=True):
-                        env.opponent_hand[i].mark_as_exposed()
+                        env.opponent_hand[i].mark_as_exposed("pon")
                     
                     # Add the discarded tile to agent's hand and mark it as 副露
-                    last_tile_discarded_by_player.mark_as_exposed()
+                    last_tile_discarded_by_player.mark_as_exposed("pon")
                     env.opponent_hand.append(last_tile_discarded_by_player)
                     
                     # Remove the discarded tile from the discard pile
@@ -581,14 +581,14 @@ if __name__ == "__main__":
                         game_state_text_box.append_html_text(f"{env.opponent_name}: チー！\n")
                         for t in env.opponent_hand:
                             if (t.何者, t.その上の数字) == (chii_tiles[0].何者, chii_tiles[0].その上の数字) and not t.副露:
-                                t.mark_as_exposed()
+                                t.mark_as_exposed("chii")
                                 break
                         for t in env.opponent_hand:
                             if (t.何者, t.その上の数字) == (chii_tiles[1].何者, chii_tiles[1].その上の数字) and not t.副露:
-                                t.mark_as_exposed()
+                                t.mark_as_exposed("chii")
                                 break
 
-                        last_tile_discarded_by_player.mark_as_exposed()
+                        last_tile_discarded_by_player.mark_as_exposed("chii")
                         env.opponent_hand.append(last_tile_discarded_by_player)
                         env.discard_pile_player.pop()
                         hiruchaaru_to_chii = True
@@ -788,15 +788,15 @@ if __name__ == "__main__":
     def player_pon():
         for t in env.player_hand:
             if (t.何者, t.その上の数字) == (last_tile_discarded_by_opponent.何者, last_tile_discarded_by_opponent.その上の数字) and not t.副露:
-                t.mark_as_exposed()
+                t.mark_as_exposed("pon")
                 break
         for t in env.player_hand:
             if (t.何者, t.その上の数字) == (last_tile_discarded_by_opponent.何者, last_tile_discarded_by_opponent.その上の数字) and not t.副露:
-                t.mark_as_exposed()
+                t.mark_as_exposed("pon")
                 break
 
         game_state_text_box.append_html_text(f"{env.player_name}: ポン！\n")
-        last_tile_discarded_by_opponent.mark_as_exposed()
+        last_tile_discarded_by_opponent.mark_as_exposed("pon")
         env.player_hand.append(last_tile_discarded_by_opponent)
         env.discard_pile_opponent.pop()
 
@@ -816,15 +816,15 @@ if __name__ == "__main__":
     def player_chii():
         for t in env.player_hand:
             if (t.何者, t.その上の数字) == (player_chii_tiles[0].何者, player_chii_tiles[0].その上の数字) and not t.副露:
-                t.mark_as_exposed()
+                t.mark_as_exposed("chii")
                 break
         for t in env.player_hand:
             if (t.何者, t.その上の数字) == (player_chii_tiles[1].何者, player_chii_tiles[1].その上の数字) and not t.副露:
-                t.mark_as_exposed()
+                t.mark_as_exposed("chii")
                 break
 
         game_state_text_box.append_html_text(f"{env.player_name}: チー！\n")
-        last_tile_discarded_by_opponent.mark_as_exposed()
+        last_tile_discarded_by_opponent.mark_as_exposed("chii")
         env.player_hand.append(last_tile_discarded_by_opponent)
         env.discard_pile_opponent.pop()
 

@@ -13,6 +13,7 @@ class 麻雀牌:
         self.アクティブ状態: list[str] = []
         self.ドラ: bool = False
         self.副露: bool = 副露
+        self.exposed_state: str = ""
         self.marked_a: bool = False # mark the tile for temporary use
         self.marked_b: bool = False
         self.marked_c: bool = False
@@ -83,10 +84,15 @@ class 麻雀牌:
         else:
             raise Exception(f"不正な牌: {self.何者}")
         
-    def mark_as_exposed(self):
+    def mark_as_exposed(self, es: str):
+        """
+        es:ぽん？それともちー？
+        """
+        assert es in ["pon", "chii"]
         if self.副露:
             raise Exception(f"牌はすでに副露されています: {self.何者}, {self.その上の数字}")
         self.副露 = True
+        self.exposed_state = es
         return None
 
     def get_asset(self, yoko: bool = False) -> str:

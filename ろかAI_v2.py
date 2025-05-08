@@ -378,10 +378,10 @@ class MahjongEnvironment:
                     agent_did_nothing = False
                     # Mark the 2 tiles in agent's hand as 副露
                     for i in sorted(same_tiles[:2], reverse=True):
-                        self.手牌[i].mark_as_exposed()
+                        self.手牌[i].mark_as_exposed("pon")
                     
                     # Add the discarded tile to agent's hand and mark it as 副露
-                    discarded_tile.mark_as_exposed()
+                    discarded_tile.mark_as_exposed("pon")
                     self.手牌.append(discarded_tile)
                     
                     # Remove the discarded tile from the discard pile
@@ -447,17 +447,17 @@ class MahjongEnvironment:
                             assert ctn.副露 == False
                         for t in self.手牌:
                             if t.何者 == chii_tiles[0].何者 and t.その上の数字 == chii_tiles[0].その上の数字 and t.赤ドラ == chii_tiles[0].赤ドラ and t.副露 == chii_tiles[0].副露:
-                                t.mark_as_exposed()
+                                t.mark_as_exposed("chii")
                                 ct_t_check += 1
                                 break
                         for t in self.手牌:
                             if t.何者 == chii_tiles[1].何者 and t.その上の数字 == chii_tiles[1].その上の数字 and t.赤ドラ == chii_tiles[1].赤ドラ and t.副露 == chii_tiles[1].副露:
-                                t.mark_as_exposed()
+                                t.mark_as_exposed("chii")
                                 ct_t_check += 1
                                 break
                         assert ct_t_check == 2, "No, not happening"
 
-                        discarded_tile.mark_as_exposed()
+                        discarded_tile.mark_as_exposed("chii")
 
                         self.手牌.append(discarded_tile)
                         self.discard_pile.pop()
@@ -992,7 +992,7 @@ def test_agent(episodes: int, model_path: str, device: str = "cpu") -> None:
                 
                 # Log results
                 if log_save_path:
-                    with open(log_save_path, "a") as f:
+                    with open(log_save_path, "a", encoding="utf-8") as f:
                         f.write(f"{ep+1},{envseat},{info['score']},{info['turn']},"
                                f"{' '.join(str(x) for x in info['completeyaku'])},"
                                f"{info['mz_score']},{info['tuiz_score']},{info['tatsu_score']},"
@@ -1013,7 +1013,7 @@ def test_agent(episodes: int, model_path: str, device: str = "cpu") -> None:
 
 
 def train_and_test_pipeline():
-    agent_name = "second_hiruchaaru"
+    agent_name = "third_hiruchaaru"
     train_agent(name=agent_name, device="cuda", save_model_every_this_episodes=3000)
     test_agent(episodes=5000, model_path=f"./DQN_agents/{agent_name}_final.pth", device="cuda")
 
@@ -1021,4 +1021,4 @@ def train_and_test_pipeline():
 
 if __name__ == "__main__":
     train_and_test_pipeline()
-    # test_agent(episodes=5000, model_path=f"./DQN_agents/second_hiruchaaru_6000.pth", device="cuda")
+    # test_agent(episodes=5000, model_path=f"./DQN_agents/second_hiruchaaaru.pth", device="cuda")
