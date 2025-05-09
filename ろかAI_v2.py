@@ -1,3 +1,5 @@
+import collections
+import csv
 import os
 import random
 from collections import Counter, deque
@@ -7,7 +9,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
-from ろか麻雀 import nicely_print_tiles, 対子スコア, 搭子スコア, 聴牌ですか, 麻雀牌, 山を作成する, 面子スコア, 点数計算
+from ろか麻雀 import calculate_weighted_preference_score, nicely_print_tiles, 対子スコア, 搭子スコア, 聴牌ですか, 麻雀牌, 山を作成する, 面子スコア, 点数計算
 
 
 class MahjongEnvironment:
@@ -208,9 +210,12 @@ class MahjongEnvironment:
 
         # Custom Penalty
         for t in self.手牌:
-            if t.何者 in {"索子", "發ちゃん"}:
-                reward_extra += 4
-                self.penalty_A -= 4
+            if t.何者 in {"東風", "南風", "西風", "北風"}:
+                reward_extra += 12
+                self.penalty_A -= 12
+            # elif t.何者 in {"萬子", "筒子", "索子"} and t.その上の数字 in {4,5,6}:
+            #     reward_extra += 3
+            #     self.penalty_A -= 3
             else:
                 reward_extra -= 4
                 self.penalty_A += 4
@@ -646,19 +651,16 @@ class NewDQN(nn.Module):
 
 class DQNAgent:
     TARGET_UPDATE_EVERY = 2000
-    EPISODIC_MEMORY_REPLAY_FREQ = 500 # How often to sample from episodic memory
-    SUCCESS_REWARD_THRESHOLD = 3000 # Reward threshold for considering an episode "successful"
+    EPISODIC_MEMORY_REPLAY_FREQ = 500
+    SUCCESS_REWARD_THRESHOLD = 3000
 
     def __init__(self, state_size: int, action_size: int, device: str = "cpu"):
         self.state_size = state_size
         self.action_size = action_size
         self.device = torch.device(device)
 
-        # Use prioritized replay buffer
         self.memory = PrioritizedReplayBuffer(capacity=50_000)
-        # Add episodic memory for valuable game sequences
         self.episodic_memory = EpisodicMemory(capacity=3333)
-        # Temporary storage for the current episode's transitions
         self.current_episode_transitions = []
 
         self.gamma = 0.99
@@ -673,12 +675,8 @@ class DQNAgent:
 
         self.optimizer = optim.Adam(self.model.parameters(), lr=self.learning_rate)
         self.criterion = nn.MSELoss()
-
         self._step_count = 0
 
-    # --------------------------------------------------
-    # 行動選択 (Action Selection)
-    # --------------------------------------------------
     def act(self, state: np.ndarray, valid_actions: list[int]):
         # ε‐greedy
         if random.random() < self.epsilon:
@@ -704,10 +702,6 @@ class DQNAgent:
             q_dict = {i: q_vals[i].item() for i in range(self.action_size)}
             return best_action_idx, q_dict
 
-
-    # --------------------------------------------------
-    # 学習 (Learning)
-    # --------------------------------------------------
     def memorize(self, *transition):
         # Add transition to the main replay buffer
         self.memory.add(*transition)
@@ -925,7 +919,6 @@ def train_agent(episodes: int = 2999, name: str = "agent",
                     print(f"Error writing to log file {log_save_path}: {e}")
 
 
-                # Save model periodically
                 if (ep + 1) % save_model_every_this_episodes == 0:
                     save_path = os.path.join(model_save_dir, f"{name}_{ep+1}.pth")
                     try:
@@ -933,10 +926,8 @@ def train_agent(episodes: int = 2999, name: str = "agent",
                         print(f"[INFO] Agent saved: {save_path}")
                     except Exception as e:
                         print(f"Error saving model to {save_path}: {e}")
+                break
 
-                break # End episode loop
-
-    # Save final model after training finishes
     final_save_path = os.path.join(model_save_dir, f"{name}_final.pth")
     try:
         torch.save(agent.model.state_dict(), final_save_path)
@@ -951,6 +942,7 @@ def test_agent(episodes: int, model_path: str, device: str = "cpu") -> None:
     env = MahjongEnvironment()
     env.add_tenpai_score = False
     agent = DQNAgent(242, 34 + 3, device=device)
+    agent.epsilon = 0
     log_save_path = f"./log/test_{model_path.split('/')[-1].split('.')[0]}.csv"
     
     # Load pre-trained model
@@ -960,10 +952,6 @@ def test_agent(episodes: int, model_path: str, device: str = "cpu") -> None:
     else:
         raise FileNotFoundError(f"Model file {model_path} not found.")
     
-    # Set epsilon to 0 for deterministic policy (no exploration)
-    agent.epsilon = 0
-    
-    # Create log file if specified
     if log_save_path:
         if os.path.exists(log_save_path):
             raise FileExistsError(f"Log file {log_save_path} already exists. Please choose a different name.")
@@ -971,7 +959,6 @@ def test_agent(episodes: int, model_path: str, device: str = "cpu") -> None:
             f.write("Episode,Seat,Score,Turn,Yaku,MZ_Score,TEZ_Score,TAZ_Score,Tenpai,HandComplete,AgariRate\n")
     
     # Statistics tracking
-    tenpai_count = 0
     agari = 0
     total_score = 0
     
@@ -1022,49 +1009,181 @@ def test_agent(episodes: int, model_path: str, device: str = "cpu") -> None:
 
 
 def test_mixed_agent(episodes: int, device: str = "cpu") -> None:
+    """
+    Tests multiple DQN agents by loading them and selecting an agent for each
+    episode based on the weighted preference score of the initial hand,
+    calculated using preference data from agent_summary.csv.
+    """
+    agent_dir = "./DQN_agents/"
+    summary_file = "./log/agent_summary.csv"
+    log_save_path = f"./test_mixed.csv"
+
+    # 1. Load agent state dictionaries
+    agent_state_dicts: dict[str, collections.OrderedDict] = {}
+    if not os.path.exists(agent_dir):
+        print(f"Error: Agent directory not found: {agent_dir}")
+        return
+
+    agent_files = [f for f in os.listdir(agent_dir) if f.endswith(".pth")]
+    if not agent_files:
+        print(f"Error: No agent files found in {agent_dir}")
+        return
+
+    print(f"Loading {len(agent_files)} agent models from {agent_dir}...")
+    for filename in agent_files:
+        try:
+            # Load the state dictionary
+            # Ensure map_location is set to the target device
+            state_dict: collections.OrderedDict = torch.load(os.path.join(agent_dir, filename), map_location=device)
+            agent_state_dicts[filename] = state_dict
+            print(f" - Loaded {filename}")
+        except Exception as e:
+            print(f"Error loading agent file {filename}: {e}")
+            # Decide whether to skip this agent or abort
+            continue # Skip malformed files
+
+    if not agent_state_dicts:
+        print("Error: No agent state dictionaries were successfully loaded.")
+        return
+
+    # 2. Read agent preference data from summary file
+    agent_preferred_tiles = {}
+    if not os.path.exists(summary_file):
+        print(f"Error: Agent summary file not found: {summary_file}")
+        # Cannot proceed without preference data for selection
+        return
+
+    print(f"Reading agent summary from {summary_file}...")
+    try:
+        with open(summary_file, mode='r', encoding='utf-8') as infile:
+            reader = csv.reader(infile)
+            header = next(reader) # Skip header
+            try:
+                # Find the column indices for 'Filename' and 'Top Tiles'
+                filename_col_idx = header.index("Filename")
+                top_tiles_col_idx = header.index("Top Tiles")
+            except ValueError:
+                print(f"Error: Required columns ('Filename', 'Top Tiles') not found in {summary_file}")
+                return
+
+            for row in reader:
+                # Ensure the row has enough columns
+                if len(row) > max(filename_col_idx, top_tiles_col_idx):
+                     filename_in_csv = row[filename_col_idx].strip()
+                     # test_5th_hiruchaaru_1200.csv -> 5th_hiruchaaru_1200.pth
+                     filename_in_csv = filename_in_csv.replace("test_", "").replace(".csv", ".pth")
+                     preferred_tiles_str = row[top_tiles_col_idx].strip()
+                     # Only add preference data for agents whose files were successfully loaded
+                     if filename_in_csv in agent_state_dicts:
+                         agent_preferred_tiles[filename_in_csv] = preferred_tiles_str
+                         print(f" - Read preferences for {filename_in_csv}") # Uncomment for detailed read
+                     else:
+                         print(f"Warning: Summary for agent file '{filename_in_csv}' not found in {agent_dir}. Skipping preference data.") # Uncomment for detailed read
+                else:
+                     print(f"Warning: Skipping malformed row in {summary_file}: {row}") # Uncomment for detailed read
+
+
+    except Exception as e:
+        print(f"Error reading agent summary file {summary_file}: {e}")
+        return
+
+    if not agent_preferred_tiles:
+         print("Error: No agent preferences successfully loaded from summary file. Cannot perform agent selection.")
+         return # Cannot proceed without preferences linking files to scores
+
+    # Initialize the environment and a single agent instance
+    # This agent instance will have its state_dict updated before each episode
     env = MahjongEnvironment()
     env.add_tenpai_score = False
-    log_save_path = f"./log/test_mixed.csv"
+
     agent = DQNAgent(242, 34 + 3, device=device)
-    agent.epsilon = 0
-    
+    agent.epsilon = 0 # Ensure deterministic action selection during testing
+
+    # Prepare log file
     if log_save_path:
         if os.path.exists(log_save_path):
-            raise FileExistsError(f"Log file {log_save_path} already exists. Please choose a different name.")
-        with open(log_save_path, "a", encoding="utf-8") as f:
-            f.write("Episode,Seat,Score,Turn,Yaku,MZ_Score,TEZ_Score,TAZ_Score,Tenpai,HandComplete,AgariRate\n")
-    
-    tenpai_count = 0
+            # Raise error if the log file already exists, as requested
+             raise FileExistsError(f"Log file {log_save_path} already exists. Please choose a different name or delete it.")
+        with open(log_save_path, "w", encoding="utf-8") as f: # Use "w" to create a new file
+            # Add 'Selected Agent' column to the header
+            f.write("Episode,Seat,Score,Turn,Yaku,MZ_Score,TEZ_Score,TAZ_Score,Tenpai,HandComplete,AgariRate,Selected Agent\n")
+
     agari = 0
     total_score = 0
-    
+
+    print(f"\nStarting mixed agent testing for {episodes} episodes...")
     for ep in range(episodes):
-        state = env.reset()
-        the_hand_tiles: list[麻雀牌] = env.手牌
+        # --- Agent Selection for the current episode ---
+        state = env.reset() # Reset environment to get the initial hand
+        the_hand_tiles: list[麻雀牌] = env.手牌 # Assuming env.手牌 is updated by reset()
+
+        best_score = -1
+        selected_agent_filename = None
+
+        # Calculate preference score for each agent's preferred tiles against the current hand
+        for filename, preferred_tiles_string in agent_preferred_tiles.items():
+            # Check if the agent's state dict was actually loaded
+            if filename in agent_state_dicts:
+                score = calculate_weighted_preference_score(the_hand_tiles, preferred_tiles_string)
+                if score > best_score:
+                    best_score = score
+                    selected_agent_filename = filename
+
+        # Load the state dict of the selected agent
+        if selected_agent_filename:
+            agent.model.load_state_dict(agent_state_dicts[selected_agent_filename])
+            # print(f"Episode {ep+1}: Selected agent {selected_agent_filename} (Score: {best_score})")
+        elif agent_state_dicts:
+             print(f"Warning: No agent had a positive preference score for hand in episode {ep+1}. Selecting the first loaded agent.")
+             selected_agent_filename = list(agent_state_dicts.keys())[0]
+             agent.model.load_state_dict(agent_state_dicts[selected_agent_filename])
+        else:
+             # This case should not happen if the initial checks passed, but for safety
+             print(f"Error: No agents available to run episode {ep+1}. Aborting.")
+             break
+
+        # --- Run the episode with the selected agent ---
         ep_reward = 0
         while True:
+            # The env.step method should use the current state of the 'agent' object
             next_state, reward, done, info, action = env.step(agent, env.agent_after_pon)
-            state = next_state
+            state = next_state # Update state for the next step
             ep_reward += reward
-            
+
             if done:
                 seat_names = ["East", "South", "West", "North"]
                 envseat = seat_names[env.seat]
-                total_score += info['score']
-                if 'completeyaku' in info and info['completeyaku']:
+                total_score += info.get('score', 0) # Use .get for safety
+                if info.get('completeyaku', []): # Use .get for safety
                     agari += 1
-                current_agari_rate = (agari / (ep + 1)) * 100
+
+                # Calculate cumulative agari rate
+                current_agari_rate = (agari / (ep + 1)) * 100 if (ep + 1) > 0 else 0
+
+                # Log the results including the selected agent
                 if log_save_path:
-                    with open(log_save_path, "a", encoding="utf-8") as f:
-                        f.write(f"{ep+1},{envseat},{info['score']},{info['turn']},"
-                               f"{' '.join(str(x) for x in info['completeyaku'])},"
-                               f"{info['mz_score']},{info['tuiz_score']},{info['tatsu_score']},"
-                               f"{info['tenpai']},{info['hand_when_complete']},{current_agari_rate:.3f}\n")
+                    try:
+                        with open(log_save_path, "a", encoding="utf-8") as f: # Use "a" to append
+                            # Get yaku list string, handle empty list
+                            yaku_str = ' '.join(str(x) for x in info.get('completeyaku', []))
+                            f.write(f"{ep+1},{envseat},{info.get('score', 0)},{info.get('turn', 0)},"
+                                   f"{yaku_str},"
+                                   f"{info.get('mz_score', 0)},{info.get('tuiz_score', 0)},{info.get('tatsu_score', 0)},"
+                                   f"{info.get('tenpai', False)},{info.get('hand_when_complete', '')},{current_agari_rate:.3f},"
+                                   f"{selected_agent_filename}\n") # Log the selected agent
+                    except Exception as log_e:
+                         print(f"Error writing to log file {log_save_path}: {log_e}")
+
+
+                # Print progress update every 500 episodes
                 if (ep + 1) % 500 == 0:
                     print(f"[TEST] Episode {ep+1}/{episodes} completed. "
                          f"Avg score: {total_score/(ep+1):.2f}, "
-                         f"Agari rate: {current_agari_rate:.2f}%")
-                break
+                         f"Agari rate: {current_agari_rate:.2f}%. "
+                         f"Selected agent for last episode: {selected_agent_filename}")
+
+                break # End of episode inner while loop
+
     print(f"\n[TEST COMPLETE] Total episodes: {episodes}")
     print(f"Average score: {total_score/episodes:.2f}")
     print(f"Agari rate: {agari/episodes*100:.3f}%")
@@ -1080,5 +1199,6 @@ def train_and_test_pipeline():
     test_agent(episodes=5000, model_path=f"./DQN_agents/{agent_name}_1400.pth", device="cuda")
 
 if __name__ == "__main__":
-    train_and_test_pipeline()
+    # train_and_test_pipeline()
     # test_agent(episodes=5000, model_path=f"./DQN_agents/5th_hiruchaaru_1600.pth", device="cuda")
+    test_mixed_agent(5000, "cuda")

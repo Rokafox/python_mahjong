@@ -1,5 +1,7 @@
 from collections import Counter
+import collections
 from copy import copy
+import csv
 import random
 import numpy as np
 import pygame, pygame_gui
@@ -10,7 +12,7 @@ from typing import List, Dict, Tuple, Optional
 
 import torch
 from ろかAI_v2 import DQNAgent
-from ろか麻雀 import nicely_print_tiles, 基礎訓練山を作成する, 山を作成する, 点数計算, 聴牌ですか, 麻雀牌
+from ろか麻雀 import calculate_weighted_preference_score, nicely_print_tiles, 基礎訓練山を作成する, 山を作成する, 点数計算, 聴牌ですか, 麻雀牌
 
 
 
@@ -332,7 +334,7 @@ if __name__ == "__main__":
     player_name_label = pygame_gui.elements.UILabel(pygame.Rect((100, 800), (200, 50)),
                                                     text="Player",
                                                     manager=ui_manager)
-    opponent_name_label = pygame_gui.elements.UILabel(pygame.Rect((100, 50), (300, 50)),
+    opponent_name_label = pygame_gui.elements.UILabel(pygame.Rect((100, 50), (350, 50)),
                                                     text="Opponent",
                                                     manager=ui_manager)
 
@@ -340,6 +342,7 @@ if __name__ == "__main__":
 
 
     env = Env()
+    image_405: pygame.Surface = pygame.image.load("asset/405.png")
 
     def draw_ui_player_hand():
         assert len(env.player_hand) <= 14
@@ -359,25 +362,32 @@ if __name__ == "__main__":
                 print(f"Error loading image {image_path}: {e}")
         if len(env.player_hand) < 14:
             for i in range(len(env.player_hand), 14):
-                player_tile_slots[i].set_image(pygame.image.load("asset/405.png"))
+                player_tile_slots[i].set_image(image_405)
                 player_tile_slots[i].set_temp_marked = True
 
 
     def draw_ui_player_discarded_tiles():
-        for uiimage in player_discarded_tiles_group_a + player_discarded_tiles_group_b:
-            uiimage.set_image(pygame.image.load("asset/405.png"))
+        if not env.discard_pile_player:
+            for uiimage in player_discarded_tiles_group_a + player_discarded_tiles_group_b:
+                uiimage.set_image(image_405)
+        pile_length = len(env.discard_pile_player)
         for i, t in enumerate(env.discard_pile_player):
+            if i < pile_length - 3:
+                # optimize: no point redrawing previous tiles.
+                continue
             image_path = t.get_asset()
-            try:
-                image_surface = pygame.image.load(image_path)
-                if i < 27:
-                    player_discarded_tiles_group_a[i].set_image(image_surface)
-                elif 27 <= i < 54:
-                    player_discarded_tiles_group_b[i - 27].set_image(image_surface)
-                else:
-                    raise Exception("Too many discarded tiles")
-            except pygame.error as e:
-                print(f"Error loading image {image_path}: {e}")
+            image_surface = pygame.image.load(image_path)
+            if i < 27:
+                player_discarded_tiles_group_a[i].set_image(image_surface)
+            elif 27 <= i < 54:
+                player_discarded_tiles_group_b[i - 27].set_image(image_surface)
+            else:
+                raise Exception("Too many discarded tiles")
+        # the next tile in pile is removed to handle pon or chii.
+        if pile_length < 27:
+            player_discarded_tiles_group_a[pile_length].set_image(image_405)
+        elif 27 <= pile_length < 53:
+            player_discarded_tiles_group_b[pile_length - 27].set_image(image_405)
 
 
     def draw_ui_opponent_hand():
@@ -404,26 +414,34 @@ if __name__ == "__main__":
                 print(f"Error loading image {image_path}: {e}")
         if len(env.opponent_hand) < 14:
             for i in range(len(env.opponent_hand), 14):
-                opponent_tile_slots[i].set_image(pygame.image.load("asset/405.png"))
+                opponent_tile_slots[i].set_image(image_405)
                 opponent_tile_slots[i].set_temp_marked = True
 
 
 
     def draw_ui_opponent_discarded_tiles():
-        for uiimage in opponent_discarded_tiles_group_a + opponent_discarded_tiles_group_b:
-            uiimage.set_image(pygame.image.load("asset/405.png"))
+        if not env.discard_pile_opponent:
+            for uiimage in opponent_discarded_tiles_group_a + opponent_discarded_tiles_group_b:
+                uiimage.set_image(image_405)
+        pile_length = len(env.discard_pile_opponent)
         for i, t in enumerate(env.discard_pile_opponent):
+            if i < pile_length - 3:
+                # optimize: no point redrawing previous tiles.
+                continue
             image_path = t.get_asset()
-            try:
-                image_surface = pygame.image.load(image_path)
-                if i < 27:
-                    opponent_discarded_tiles_group_a[i].set_image(image_surface)
-                elif 27 <= i < 54:
-                    opponent_discarded_tiles_group_b[i - 27].set_image(image_surface)
-                else:
-                    raise Exception("Too many discarded tiles")
-            except pygame.error as e:
-                print(f"Error loading image {image_path}: {e}")
+            image_surface = pygame.image.load(image_path)
+            if i < 27:
+                opponent_discarded_tiles_group_a[i].set_image(image_surface)
+            elif 27 <= i < 54:
+                opponent_discarded_tiles_group_b[i - 27].set_image(image_surface)
+            else:
+                raise Exception("Too many discarded tiles")
+        # the next tile in pile is removed to handle pon or chii.
+        if pile_length < 27:
+            opponent_discarded_tiles_group_a[pile_length].set_image(image_405)
+        elif 27 <= pile_length < 53:
+            opponent_discarded_tiles_group_b[pile_length - 27].set_image(image_405)
+
 
 
     def player_check_discard_what_to_tenpai():
@@ -446,33 +464,6 @@ if __name__ == "__main__":
                 player_tile_slots[i].set_image(new_image)
 
 
-    def start_new_game(reset_points: bool = False, opponent_name: str = ""):
-        global player_win_points, player_win_yaku
-        env.start_new_game(opponent_name)
-        new_tile = env.player_draw_tile()
-        draw_ui_player_hand()
-        player_check_discard_what_to_tenpai()
-        draw_ui_opponent_hand()
-        draw_ui_player_discarded_tiles()
-        draw_ui_opponent_discarded_tiles()
-        game_state_text_box.set_text("")
-        if reset_points:
-            env.player_points = env.starting_points
-            env.opponent_points = env.starting_points
-        draw_ui_player_labels()
-        button_tsumo.hide()
-        button_chii.hide()
-        button_pon.hide()
-        button_ron.hide()
-        button_pass.hide()
-        a00, b00, c00 = 点数計算(env.player_hand, env.player_seat)
-        if c00:
-            button_pass.show()
-            button_tsumo.show()
-            player_win_points = a00
-            player_win_yaku = b00
-
-
     last_tile_discarded_by_opponent: 麻雀牌 | None = None
     last_tile_discarded_by_player: 麻雀牌 | None = None
     player_chii_tiles: List[麻雀牌] = []
@@ -486,6 +477,8 @@ if __name__ == "__main__":
         for s in player_tile_slots:
             s.set_tooltip("", delay=0.1)
         player_can_call = False
+
+        assert last_tile_discarded_by_player.副露 == False
 
         # Opponent Ron
         temp_opponent_hand = env.opponent_hand.copy()
@@ -540,6 +533,7 @@ if __name__ == "__main__":
                     # Add the discarded tile to agent's hand and mark it as 副露
                     last_tile_discarded_by_player.mark_as_exposed("pon")
                     env.opponent_hand.append(last_tile_discarded_by_player)
+                    last_tile_discarded_by_player = None
                     
                     # Remove the discarded tile from the discard pile
                     env.discard_pile_player.pop()
@@ -549,7 +543,7 @@ if __name__ == "__main__":
                 else: # action 34
                     pass
         # chii
-        if len([t for t in env.opponent_hand if not t.副露]) > 2 and len(env.discard_pile_opponent) < 54:
+        if len([t for t in env.opponent_hand if not t.副露]) > 2 and len(env.discard_pile_opponent) < 54 and last_tile_discarded_by_player:
             can_chii = False
             chii_tiles = []
             
@@ -595,6 +589,7 @@ if __name__ == "__main__":
 
                         last_tile_discarded_by_player.mark_as_exposed("chii")
                         env.opponent_hand.append(last_tile_discarded_by_player)
+                        last_tile_discarded_by_player = None
                         env.discard_pile_player.pop()
                         hiruchaaru_to_chii = True
                     else:
@@ -757,8 +752,9 @@ if __name__ == "__main__":
                     s.set_tooltip("", delay=0.1)
 
     def draw_ui_player_labels():
-        player_name_label.set_text(f"{env.player_name} : {env.player_points}点")
-        opponent_name_label.set_text(f"{env.opponent_name} : {env.opponent_points}点")
+        dic = {0: "東", 1: "南", 2: "西", 3: "北"}
+        player_name_label.set_text(f"{dic.get(env.player_seat)} : {env.player_name} : {env.player_points}点")
+        opponent_name_label.set_text(f"{dic.get(env.opponent_seat)} : {env.opponent_name} : {env.opponent_points}点")
 
 
     def player_win(is_tsumo: bool):
@@ -932,10 +928,42 @@ if __name__ == "__main__":
                                                    command=player_pass)
     button_pass.hide()
 
+    agent_selection_list = ["Mixed"]
+    # 1.
+    agent_files = [f for f in os.listdir("./DQN_agents/") if f.endswith(".pth")]
+    agent_state_dicts: dict[str, collections.OrderedDict] = {}
+    for filename in agent_files:
+        state_dict: collections.OrderedDict = torch.load(os.path.join("./DQN_agents/", filename), map_location="cuda")
+        agent_state_dicts[filename] = state_dict
+    # 2.
+    agent_preferred_tiles = {}
+    with open("./log/agent_summary.csv", mode='r', encoding='utf-8') as infile:
+        reader = csv.reader(infile)
+        header = next(reader) # Skip header
+        # Find the column indices for 'Filename' and 'Top Tiles'
+        filename_col_idx = header.index("Filename")
+        top_tiles_col_idx = header.index("Top Tiles")
 
-    agent_list = [f for f in os.listdir("./DQN_agents") if os.path.isfile(os.path.join("./DQN_agents", f))]
-    dqn_agent.model.load_state_dict(torch.load(f"./DQN_agents/{agent_list[0]}", map_location="cuda"))
-    dqn_agent_selection_menu = pygame_gui.elements.UIDropDownMenu(agent_list, agent_list[0], 
+        for row in reader:
+            # Ensure the row has enough columns
+            if len(row) > max(filename_col_idx, top_tiles_col_idx):
+                filename_in_csv = row[filename_col_idx].strip()
+                # test_5th_hiruchaaru_1200.csv -> 5th_hiruchaaru_1200.pth
+                filename_in_csv = filename_in_csv.replace("test_", "").replace(".csv", ".pth")
+                preferred_tiles_str = row[top_tiles_col_idx].strip()
+                # Only add preference data for agents whose files were successfully loaded
+                if filename_in_csv in agent_state_dicts:
+                    agent_preferred_tiles[filename_in_csv] = preferred_tiles_str
+                    # print(f" - Read preferences for {filename_in_csv}")
+                else:
+                    print(f"Warning: Summary for agent file '{filename_in_csv}' not found in. Skipping preference data.")
+            else:
+                print(f"Warning: Skipping malformed row in ./log/agent_summary.csv: {row}")
+
+
+    agent_selection_list.extend(agent_files)
+
+    dqn_agent_selection_menu = pygame_gui.elements.UIDropDownMenu(agent_selection_list, "Mixed", 
                                                                   relative_rect=pygame.Rect((1100, 150), (300, 50)),
                                                                   manager=ui_manager)
 
@@ -944,6 +972,58 @@ if __name__ == "__main__":
                                                    manager=ui_manager,
                                                    tool_tip_text="Some tool tip text.")
 
+
+    def start_new_game(reset_points: bool = False, opponent_name: str = ""):
+        global player_win_points, player_win_yaku
+        env.start_new_game(opponent_name)
+        if opponent_name == "Mixed":
+            # Then decide which agent to assign to this game
+            best_score = -1
+            selected_agent_filename = None
+            # Calculate preference score for each agent's preferred tiles against the current hand
+            for filename, preferred_tiles_string in agent_preferred_tiles.items():
+                # Check if the agent's state dict was actually loaded
+                if filename in agent_state_dicts:
+                    score = calculate_weighted_preference_score(env.opponent_hand, preferred_tiles_string)
+                    if score > best_score:
+                        best_score = score
+                        selected_agent_filename = filename
+
+            # Load the state dict of the selected agent
+            if selected_agent_filename:
+                dqn_agent.model.load_state_dict(agent_state_dicts[selected_agent_filename])
+                # print(f"Episode {ep+1}: Selected agent {selected_agent_filename} (Score: {best_score})")
+            elif agent_state_dicts:
+                print(f"Warning: No agent had a positive preference score for hand. Selecting the first loaded agent.")
+                selected_agent_filename = list(agent_state_dicts.keys())[0]
+                dqn_agent.model.load_state_dict(agent_state_dicts[selected_agent_filename])
+            else:
+                raise Exception
+        else:
+            dqn_agent.model.load_state_dict(agent_state_dicts[f"{opponent_name}.pth"])
+
+        new_tile = env.player_draw_tile()
+        draw_ui_player_hand()
+        player_check_discard_what_to_tenpai()
+        draw_ui_opponent_hand()
+        draw_ui_player_discarded_tiles()
+        draw_ui_opponent_discarded_tiles()
+        game_state_text_box.set_text("")
+        if reset_points:
+            env.player_points = env.starting_points
+            env.opponent_points = env.starting_points
+        draw_ui_player_labels()
+        button_tsumo.hide()
+        button_chii.hide()
+        button_pon.hide()
+        button_ron.hide()
+        button_pass.hide()
+        a00, b00, c00 = 点数計算(env.player_hand, env.player_seat)
+        if c00:
+            button_pass.show()
+            button_tsumo.show()
+            player_win_points = a00
+            player_win_yaku = b00
 
 
     start_new_game(reset_points=True, opponent_name=dqn_agent_selection_menu.selected_option[0].split('.')[0])
@@ -1055,13 +1135,11 @@ if __name__ == "__main__":
 
 
             if event.type == pygame_gui.UI_BUTTON_PRESSED:
+                selected_opponent = dqn_agent_selection_menu.selected_option[0].split('.')[0]
                 if event.ui_element == new_game_button:
-                    start_new_game(reset_points=False, opponent_name=dqn_agent_selection_menu.selected_option[0].split('.')[0])
+                    start_new_game(reset_points=False, opponent_name=selected_opponent)
                 if event.ui_element == reload_hiruchaaru_button:
-                    env.opponent_name = dqn_agent_selection_menu.selected_option[0].split('.')[0]
-                    agent_path = "./DQN_agents/" + dqn_agent_selection_menu.selected_option[0]
-                    dqn_agent.model.load_state_dict(torch.load(agent_path, map_location="cpu"))
-                    start_new_game(reset_points=True, opponent_name=dqn_agent_selection_menu.selected_option[0].split('.')[0])
+                    start_new_game(reset_points=True, opponent_name=selected_opponent)
 
             if event.type == pygame_gui.UI_TEXT_BOX_LINK_CLICKED:
                 pass

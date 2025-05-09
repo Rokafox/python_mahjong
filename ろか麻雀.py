@@ -3,6 +3,7 @@ from copy import deepcopy
 from itertools import combinations, permutations
 import linecache
 import random
+import re
 
 class 麻雀牌:
     def __init__(self, 何者: str, その上の数字: int, 赤ドラ: bool = False, 副露: bool = False):
@@ -128,19 +129,38 @@ class 麻雀牌:
 
 
 
-def calculate_prefered_tile_percentage(tiles_list: list[麻雀牌], input_string: str) -> float:
+def calculate_weighted_preference_score(tiles_list: list[麻雀牌], input_string: str) -> int:
     """
-    Given a str of prefered tiles, how many tiles in tiles_list are prefered?
+    Given a list of Mahjong tiles and a string of preferred tiles with scores,
+    calculates a weighted preference score for the tiles_list.
+    The input_string is expected to be in the format "Tile Name (Score), Tile Name (Score), ...".
+    The score for each tile in the tiles_list that matches a preferred tile
+    in the input_string is added to the total weighted score.
     """
-    prefered_tiles_strs = [tile_str.strip() for tile_str in input_string.split(',')]
-    tiles_list_strs = [str(tile) for tile in tiles_list]
-    matches = 0
-    for t in tiles_list_strs:
-        if t in prefered_tiles_strs:
-            matches += 1
-    
-    percentage = (matches / len(tiles_list_strs)) * 100
-    return percentage
+    prefered_tiles_with_scores = {}
+    # Use regex to find all tile name and score pairs
+    matches = re.findall(r"([^,]+?)\s*\((\d+)\)", input_string)
+
+    for match in matches:
+        tile_name = match[0].strip()
+        score = int(match[1])
+        prefered_tiles_with_scores[tile_name] = score
+
+    total_weighted_score = 0
+    for tile in tiles_list:
+        tile_str = str(tile)
+        if tile_str in prefered_tiles_with_scores:
+            total_weighted_score += prefered_tiles_with_scores[tile_str]
+
+    return total_weighted_score
+
+
+# prefered_input_string = "筒子2 (9860), 筒子3 (8371), 筒子8 (6842), 筒子9 (6299), 筒子6 (4974), 筒子4 (4690), 筒子1 (4655), 筒子7 (4572), 筒子5 (4256), 索子6 (1644), 筒子5赤ドラ (1316), 索子7 (1074), 南風 (901), 索子5 (876), 索子4 (775), 萬子7 (751), 索子3 (701), 東風 (600), 萬子6 (384), 白ちゃん (381)"
+# hand_tiles = [
+# 麻雀牌("萬子", 6, False), 麻雀牌("萬子", 6, False), 麻雀牌("萬子", 3, False),  
+# ]
+# weighted_score = calculate_weighted_preference_score(hand_tiles, prefered_input_string)
+# print(f"The weighted preference score for the hand is: {weighted_score}")
 
 
 def nicely_print_tiles(tiles: list[麻雀牌], sortit: bool = True) -> str:
@@ -950,6 +970,20 @@ def 三風刻(tiles: list[麻雀牌]) -> bool:
     return False
 
 
+def 客風三刻(tiles: list[麻雀牌], seat: int) -> bool:
+    dic = {0: "東風", 1: "南風", 2: "西風", 3: "北風"}
+    to_remove = dic.get(seat, None)
+    abcd = ["東風", "南風", "西風", "北風"]
+    abcd.remove(to_remove)
+    assert len(abcd) == 3
+    counter = Counter((t.何者, t.その上の数字) for t in tiles if t.何者 in abcd)
+    if len(counter) == 3:
+        if all(
+            cnt >= 3 for key, cnt in counter.items()
+        ):
+            return True
+    return False
+
 # 手牌 = [
 #     麻雀牌("萬子", 1, False), 麻雀牌("萬子", 2, False), 麻雀牌("萬子", 3, False),  
 #     麻雀牌("索子", 1, False), 麻雀牌("索子", 2, False), 麻雀牌("索子", 2, False),  
@@ -1383,6 +1417,9 @@ def 点数計算(tiles: list[麻雀牌], seat: int) -> tuple[int, list[str], boo
             score += 32000
             yaku.append("三色同刻")
             win = True
+        if 客風三刻(tiles, seat):
+            score += 32000
+            yaku.append("客風三刻")
         if 四喜和(tiles):
             score += 32000
             yaku.append("四喜和")

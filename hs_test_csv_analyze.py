@@ -53,34 +53,11 @@ def configure_fonts_for_plotting():
         print(f" - {font}")
     print("-" * 20)
 
-def tile_to_index(self, tile):
-    """Convert tile to unique index"""
-    if tile.何者 == "萬子":
-        return tile.その上の数字 - 1
-    elif tile.何者 == "筒子":
-        return 9 + tile.その上の数字 - 1
-    elif tile.何者 == "索子":
-        return 18 + tile.その上の数字 - 1
-    elif tile.何者 == "東風":
-        return 27
-    elif tile.何者 == "南風":
-        return 28
-    elif tile.何者 == "西風":
-        return 29
-    elif tile.何者 == "北風":
-        return 30
-    elif tile.何者 == "白ちゃん":
-        return 31
-    elif tile.何者 == "發ちゃん":
-        return 32
-    elif tile.何者 == "中ちゃん":
-        return 33
-
 # --- Configuration ---
 # Directory containing the CSV files
 log_directory = 'log'
-# Threshold frequency for a tile to be considered "preferred"
-preferred_tile_threshold = 2222
+# Number of top frequent tiles to report
+top_tiles_count = 20
 # Output summary filename
 summary_filename = 'agent_summary.csv'
 # --- End Configuration ---
@@ -185,16 +162,16 @@ for file_name in csv_files:
         # tile_counts remains empty Counter()
         # Plotting would have been skipped
 
-    # --- Determine Preferred Tiles ---
-    preferred_tiles = [tile for tile, count in tile_counts.items() if count > preferred_tile_threshold]
-    preferred_tiles_str = ", ".join(preferred_tiles) if preferred_tiles else 'None'
-    print(f"  Preferred Tiles (> {preferred_tile_threshold} frequency): {preferred_tiles_str}")
+    # --- Determine Top 10 Most Frequent Tiles ---
+    most_common_tiles = tile_counts.most_common(top_tiles_count)
+    top_tiles_str = ", ".join([f"{tile} ({count})" for tile, count in most_common_tiles]) if most_common_tiles else 'None'
+    print(f"  Top {top_tiles_count} Most Frequent Tiles: {top_tiles_str}")
 
     # --- Store Summary Data ---
     summary_data.append({
         'Filename': file_name,
         'Average Turn': f'{avg_turn:.2f}' if isinstance(avg_turn, (int, float)) else avg_turn, # Format if numeric
-        'Preferred Tiles': preferred_tiles_str
+        'Top Tiles': top_tiles_str
     })
 
 # --- Create Summary CSV ---
