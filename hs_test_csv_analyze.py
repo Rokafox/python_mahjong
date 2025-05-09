@@ -7,6 +7,51 @@ import matplotlib.font_manager as fm
 import pandas as pd
 import sys
 
+# --- Font Configuration Enhancement ---
+def configure_fonts_for_plotting():
+    """Set up a robust font configuration that works across different Linux distributions"""
+    # Get all available font families
+    available_fonts = set([f.name for f in fm.fontManager.ttflist])
+    
+    # Define potential font families in order of preference
+    # This list includes common fonts available on various Linux distributions
+    japanese_font_candidates = [
+        'Noto Sans CJK JP', 'Noto Sans JP', 'Noto Sans CJK', 'Noto Sans',  # Widely available on modern Linux
+        'IPAGothic', 'IPAPGothic', 'IPA Gothic', 'IPA PGothic',           # Japanese IPA fonts
+        'Droid Sans Japanese', 'Droid Sans Fallback',                      # Older Android fonts
+        'MS Gothic', 'MS PGothic', 'MS UI Gothic',                         # Windows Japanese fonts
+        'VL Gothic', 'Meiryo', 'Meiryo UI',                               # Various others
+        'DejaVu Sans', 'Liberation Sans',                                  # Fallbacks with partial CJK support
+        'sans-serif'                                                       # Ultimate fallback
+    ]
+    
+    # Find the first available font
+    font_family = 'sans-serif'  # Default fallback
+    for font in japanese_font_candidates:
+        if font in available_fonts:
+            font_family = font
+            print(f"Using font: {font}")
+            break
+    
+    # Configure matplotlib to use the selected font
+    plt.rcParams['font.family'] = font_family
+    
+    # Alternative approach: specify a list of fonts for fallback
+    # This helps matplotlib try each font in order until it finds one that works
+    plt.rcParams['font.sans-serif'] = [font for font in japanese_font_candidates 
+                                      if font in available_fonts] + ['sans-serif']
+    
+    # Ensure Unicode minus signs render correctly
+    plt.rcParams['axes.unicode_minus'] = False
+    
+    # Optional: Print the detected fonts for debugging
+    print("\nAvailable CJK/Japanese fonts detected:")
+    japanese_fonts = [f.name for f in fm.fontManager.ttflist 
+                     if any(keyword in f.name.lower() for keyword in 
+                           ['cjk', 'jp', 'japanese', 'gothic', 'mincho', 'unicode', 'ipa'])]
+    for font in sorted(japanese_fonts):
+        print(f" - {font}")
+    print("-" * 20)
 
 def tile_to_index(self, tile):
     """Convert tile to unique index"""
@@ -40,21 +85,8 @@ preferred_tile_threshold = 2222
 summary_filename = 'agent_summary.csv'
 # --- End Configuration ---
 
-# Use a fallback mechanism with multiple fonts
-# This is crucial for potential non-ASCII characters in future updates,
-# though standard tile names like m1, p5, s9, ji1 are ASCII.
-plt.rcParams['font.family'] = ['DejaVu Sans', 'Droid Sans Japanese']
-# Make sure Unicode minus signs render correctly
-plt.rcParams['axes.unicode_minus'] = False
-
-# --- Optional: Print available fonts for debugging ---
-# print("\nAvailable fonts with Japanese support:")
-# japanese_fonts = [f.name for f in fm.fontManager.ttflist
-#                   if any(keyword in f.name.lower() for keyword in ['cjk', 'jp', 'japanese', 'gothic', 'mincho', 'unicode'])]
-# for font in sorted(japanese_fonts):
-#     print(f" - {font}")
-# print("-" * 20)
-# --- End Optional ---
+# Use our enhanced font configuration
+configure_fonts_for_plotting()
 
 # Get all files in the directory
 try:
@@ -146,7 +178,6 @@ for file_name in csv_files:
         else:
             print("  Column 'HandComplete' not found in file. Skipping tile analysis and plot.")
 
-
     except Exception as e:
         print(f"  Error processing file {file_path}: {e}")
         # Assign error indicators if processing failed
@@ -158,7 +189,6 @@ for file_name in csv_files:
     preferred_tiles = [tile for tile, count in tile_counts.items() if count > preferred_tile_threshold]
     preferred_tiles_str = ", ".join(preferred_tiles) if preferred_tiles else 'None'
     print(f"  Preferred Tiles (> {preferred_tile_threshold} frequency): {preferred_tiles_str}")
-
 
     # --- Store Summary Data ---
     summary_data.append({
