@@ -7,51 +7,6 @@ import matplotlib.font_manager as fm
 import pandas as pd
 import sys
 
-# --- Font Configuration Enhancement ---
-def configure_fonts_for_plotting():
-    """Set up a robust font configuration that works across different Linux distributions"""
-    # Get all available font families
-    available_fonts = set([f.name for f in fm.fontManager.ttflist])
-    
-    # Define potential font families in order of preference
-    # This list includes common fonts available on various Linux distributions
-    japanese_font_candidates = [
-        'Noto Sans CJK JP', 'Noto Sans JP', 'Noto Sans CJK', 'Noto Sans',  # Widely available on modern Linux
-        'IPAGothic', 'IPAPGothic', 'IPA Gothic', 'IPA PGothic',           # Japanese IPA fonts
-        'Droid Sans Japanese', 'Droid Sans Fallback',                      # Older Android fonts
-        'MS Gothic', 'MS PGothic', 'MS UI Gothic',                         # Windows Japanese fonts
-        'VL Gothic', 'Meiryo', 'Meiryo UI',                               # Various others
-        'DejaVu Sans', 'Liberation Sans',                                  # Fallbacks with partial CJK support
-        'sans-serif'                                                       # Ultimate fallback
-    ]
-    
-    # Find the first available font
-    font_family = 'sans-serif'  # Default fallback
-    for font in japanese_font_candidates:
-        if font in available_fonts:
-            font_family = font
-            print(f"Using font: {font}")
-            break
-    
-    # Configure matplotlib to use the selected font
-    plt.rcParams['font.family'] = font_family
-    
-    # Alternative approach: specify a list of fonts for fallback
-    # This helps matplotlib try each font in order until it finds one that works
-    plt.rcParams['font.sans-serif'] = [font for font in japanese_font_candidates 
-                                      if font in available_fonts] + ['sans-serif']
-    
-    # Ensure Unicode minus signs render correctly
-    plt.rcParams['axes.unicode_minus'] = False
-    
-    # Optional: Print the detected fonts for debugging
-    print("\nAvailable CJK/Japanese fonts detected:")
-    japanese_fonts = [f.name for f in fm.fontManager.ttflist 
-                     if any(keyword in f.name.lower() for keyword in 
-                           ['cjk', 'jp', 'japanese', 'gothic', 'mincho', 'unicode', 'ipa'])]
-    for font in sorted(japanese_fonts):
-        print(f" - {font}")
-    print("-" * 20)
 
 # --- Configuration ---
 # Directory containing the CSV files
@@ -62,10 +17,8 @@ top_tiles_count = 20
 summary_filename = 'agent_summary.csv'
 # --- End Configuration ---
 
-# Use our enhanced font configuration
-configure_fonts_for_plotting()
+plt.rcParams['font.family'] = ['Droid Sans Japanese', 'Droid Sans', 'Noto Sans', 'Noto Sans CJK JP']
 
-# Get all files in the directory
 try:
     all_files = os.listdir(log_directory)
 except FileNotFoundError:
@@ -90,6 +43,7 @@ for file_name in csv_files:
     print(f"\nProcessing file: {file_path}")
 
     avg_turn = 'N/A' # Default value
+    avg_score = 'N/A'
     tile_counts = Counter() # Initialize empty counter
 
     try:
@@ -111,6 +65,22 @@ for file_name in csv_files:
         else:
             print("  Column 'Turn' not found in file. Cannot calculate average turn.")
             avg_turn = 'Turn column missing'
+
+        # --- Calculate Average Score ---
+        if 'Score' in df.columns:
+            # Convert 'Turn' column to numeric, coercing errors to NaN
+            numeric_score = pd.to_numeric(df['Score'], errors='coerce')
+            # Drop NaN values before calculating mean
+            valid_scores = numeric_score.dropna()
+            if not valid_scores.empty:
+                avg_score = valid_scores.mean()
+                print(f"  Calculated Average Score: {avg_score:.2f}")
+            else:
+                 print("  'Turn' column found, but contains no valid numeric data.")
+                 avg_score = 'No valid turn data'
+        else:
+            print("  Column 'Score' not found in file. Cannot calculate average score.")
+            avg_score = 'Score column missing'
 
         # --- Analyze Tile Frequencies ---
         if 'HandComplete' in df.columns:
@@ -159,6 +129,7 @@ for file_name in csv_files:
         print(f"  Error processing file {file_path}: {e}")
         # Assign error indicators if processing failed
         if avg_turn == 'N/A': avg_turn = f'Processing error: {e}'
+        if avg_score == 'N/A': avg_score = f'Processing error: {e}'
         # tile_counts remains empty Counter()
         # Plotting would have been skipped
 
@@ -171,6 +142,7 @@ for file_name in csv_files:
     summary_data.append({
         'Filename': file_name,
         'Average Turn': f'{avg_turn:.2f}' if isinstance(avg_turn, (int, float)) else avg_turn, # Format if numeric
+        'Average Score': f'{avg_score:.2f}' if isinstance(avg_score, (int, float)) else avg_score, # Format if numeric
         'Top Tiles': top_tiles_str
     })
 

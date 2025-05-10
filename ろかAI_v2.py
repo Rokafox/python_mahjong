@@ -22,9 +22,10 @@ class MahjongEnvironment:
 
     def __init__(self):
         self.agent_tile_count = 13
-        self.sandbag_tile_count = 13 # slightly reduced difficulty
+        self.sandbag_tile_count = 13
         self.reset()
-        self.add_tenpai_score = True
+        # test environment does not give penalty nor hand reward
+        self.is_test_environment = False
 
     # --------------------------------------------------
     # ゲーム管理
@@ -166,18 +167,17 @@ class MahjongEnvironment:
 
     def _agent_extra_reward(self, 手牌: list[麻雀牌]) -> int:
         reward_extra = 0
-        if self.add_tenpai_score:
-            # 聴牌の場合、大量の報酬を与える
-            # NOTE: Check tenpai every turn is slow
-            # 聴牌, 何の牌 = 聴牌ですか(self.手牌, self.seat)
-            # if 聴牌:
-            #     reward_extra += 300
-            #     # print(f"聴牌:")
-            #     # for p in 何の牌:
-            #     #     print(f"{p.何者} {p.その上の数字}")
-            #     self.total_tennpai += len(何の牌)
-            #     reward_extra += len(何の牌) * 50
-            pass
+
+        # 聴牌の場合、大量の報酬を与える
+        # NOTE: Check tenpai every turn is slow
+        # 聴牌, 何の牌 = 聴牌ですか(self.手牌, self.seat)
+        # if 聴牌:
+        #     reward_extra += 300
+        #     # print(f"聴牌:")
+        #     # for p in 何の牌:
+        #     #     print(f"{p.何者} {p.その上の数字}")
+        #     self.total_tennpai += len(何の牌)
+        #     reward_extra += len(何の牌) * 50
         
         mz_score = int(面子スコア(self.手牌) * 8)
         self.mz_score += mz_score
@@ -194,8 +194,8 @@ class MahjongEnvironment:
         # Penalty for having 4,5,6.
         # for t in self.手牌:
         #     if t.何者 in {"萬子", "筒子", "索子"} and t.その上の数字 in {4,5,6}:
-        #         reward_extra -= 10
-        #         self.penalty_A += 10
+        #         reward_extra -= 6
+        #         self.penalty_A += 6
 
         # for t in self.手牌:
         #     if "么九牌" in t.固有状態:
@@ -211,11 +211,12 @@ class MahjongEnvironment:
         # Custom Penalty
         for t in self.手牌:
             if t.何者 in {"東風", "南風", "西風", "北風"}:
-                reward_extra += 12
-                self.penalty_A -= 12
-            # elif t.何者 in {"萬子", "筒子", "索子"} and t.その上の数字 in {4,5,6}:
-            #     reward_extra += 3
-            #     self.penalty_A -= 3
+                # reward_extra += 12
+                # self.penalty_A -= 12
+                pass
+            elif t.何者 in {"萬子", "筒子", "索子"} and t.その上の数字 in {4,5,6}:
+                reward_extra += 4
+                self.penalty_A -= 4
             else:
                 reward_extra -= 4
                 self.penalty_A += 4
@@ -260,7 +261,7 @@ class MahjongEnvironment:
         assert len(valid_actions) > 0
         action: int
         action, full_dict = actor.act(self._get_state(), valid_actions)
-        if self.add_tenpai_score:
+        if not self.is_test_environment:
             # reward -= 2  # base penalty
             reward -= int(self.turn)
         tile_type = self._index_to_tile_type(action)
@@ -276,9 +277,10 @@ class MahjongEnvironment:
         assert target_tile.副露 == False, f"Exposed tile can not be discarded! {target_tile.何者}{target_tile.その上の数字}"
         self.手牌.remove(target_tile)
         self.discard_pile.append(target_tile)
-    
-        # Reward by how good the agent has formed the hand
-        reward += self._agent_extra_reward(self.手牌)
+
+        if not self.is_test_environment:
+            # Reward by how good the agent has formed the hand
+            reward += self._agent_extra_reward(self.手牌)
 
         done = not self.山
         self.score += reward
@@ -821,12 +823,13 @@ class DQNAgent:
 
 
 def train_agent(episodes: int = 2999, name: str = "agent",
-                device: str = "cuda", save_model_every_this_episodes: int = 1000) -> DQNAgent:
+                device: str = "cuda", save_every_this_ep: int = 1000,
+                save_after_this_ep: int = 900) -> DQNAgent:
     env = MahjongEnvironment()
     state_size = env.observation_space.shape[0] if hasattr(env, 'observation_space') and env.observation_space.shape else 242 # Use env spec if available
     action_size = env.action_space.n if hasattr(env, 'action_space') else 34 + 3 # Use env spec if available
     agent = DQNAgent(state_size, action_size, device=device)
-    assert save_model_every_this_episodes >= 200, "Reasonable saving interval must be no less than 200."
+    assert save_every_this_ep >= 200, "Reasonable saving interval must be no less than 200."
     log_save_path = f"./log/train_{name}.csv"
 
     if os.path.exists(log_save_path):
@@ -919,7 +922,7 @@ def train_agent(episodes: int = 2999, name: str = "agent",
                     print(f"Error writing to log file {log_save_path}: {e}")
 
 
-                if (ep + 1) % save_model_every_this_episodes == 0:
+                if (ep + 1) % save_every_this_ep == 0 and ep > save_after_this_ep:
                     save_path = os.path.join(model_save_dir, f"{name}_{ep+1}.pth")
                     try:
                         torch.save(agent.model.state_dict(), save_path)
@@ -940,7 +943,7 @@ def train_agent(episodes: int = 2999, name: str = "agent",
 
 def test_agent(episodes: int, model_path: str, device: str = "cpu") -> None:
     env = MahjongEnvironment()
-    env.add_tenpai_score = False
+    env.is_test_environment = True
     agent = DQNAgent(242, 34 + 3, device=device)
     agent.epsilon = 0
     log_save_path = f"./log/test_{model_path.split('/')[-1].split('.')[0]}.csv"
@@ -954,7 +957,8 @@ def test_agent(episodes: int, model_path: str, device: str = "cpu") -> None:
     
     if log_save_path:
         if os.path.exists(log_save_path):
-            raise FileExistsError(f"Log file {log_save_path} already exists. Please choose a different name.")
+            print(f"Test file {log_save_path} already exist, skip.")
+            return None
         with open(log_save_path, "a", encoding="utf-8") as f:
             f.write("Episode,Seat,Score,Turn,Yaku,MZ_Score,TEZ_Score,TAZ_Score,Tenpai,HandComplete,AgariRate\n")
     
@@ -1006,6 +1010,12 @@ def test_agent(episodes: int, model_path: str, device: str = "cpu") -> None:
     print(f"Average score: {total_score/episodes:.2f}")
     print(f"Agari rate: {agari/episodes*100:.3f}%")
 
+
+def test_all_agents(episodes: int, device: str = "cpu") -> None:
+    agent_dir = "./DQN_agents/"
+    agent_files = [f for f in os.listdir(agent_dir) if f.endswith(".pth")]
+    for f in agent_files:
+        test_agent(episodes, f"{agent_dir}{f}", device)
 
 
 def test_mixed_agent(episodes: int, device: str = "cpu") -> None:
@@ -1094,7 +1104,7 @@ def test_mixed_agent(episodes: int, device: str = "cpu") -> None:
     # Initialize the environment and a single agent instance
     # This agent instance will have its state_dict updated before each episode
     env = MahjongEnvironment()
-    env.add_tenpai_score = False
+    env.is_test_environment = True
 
     agent = DQNAgent(242, 34 + 3, device=device)
     agent.epsilon = 0 # Ensure deterministic action selection during testing
@@ -1192,13 +1202,13 @@ def test_mixed_agent(episodes: int, device: str = "cpu") -> None:
 
 
 def train_and_test_pipeline():
-    agent_name = "7th_hiruchaaru"
-    train_agent(name=agent_name, device="cuda", save_model_every_this_episodes=200)
-    test_agent(episodes=5000, model_path=f"./DQN_agents/{agent_name}_1000.pth", device="cuda")
-    test_agent(episodes=5000, model_path=f"./DQN_agents/{agent_name}_1200.pth", device="cuda")
-    test_agent(episodes=5000, model_path=f"./DQN_agents/{agent_name}_1400.pth", device="cuda")
+    agent_name = "8rd_hr"
+    train_agent(2999, name=agent_name, device="cuda", save_every_this_ep=200, save_after_this_ep=900)
+    for v in [1000, 1200, 1400]:
+        test_agent(episodes=5000, model_path=f"./DQN_agents/{agent_name}_{str(v)}.pth", device="cuda")
+
 
 if __name__ == "__main__":
-    # train_and_test_pipeline()
-    # test_agent(episodes=5000, model_path=f"./DQN_agents/5th_hiruchaaru_1600.pth", device="cuda")
-    test_mixed_agent(5000, "cuda")
+    train_and_test_pipeline()
+    # test_agent(episodes=5000, model_path=f"./DQN_agents/3rd_hr_200.pth", device="cuda")
+    # test_mixed_agent(5000, "cuda")
