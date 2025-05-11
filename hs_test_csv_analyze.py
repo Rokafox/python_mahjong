@@ -33,24 +33,19 @@ if not csv_files:
     print(f"No CSV files found in '{log_directory}' that match the pattern 'test_*.csv'.")
     sys.exit()
 
-# List to store summary data for each agent
 summary_data = []
 
-# Analyze each CSV file
 print(f"Found {len(csv_files)} files matching 'test_*.csv'. Starting analysis...")
 for file_name in csv_files:
     file_path = os.path.join(log_directory, file_name)
     print(f"\nProcessing file: {file_path}")
 
-    avg_turn = 'N/A' # Default value
+    avg_turn = 'N/A'
     avg_score = 'N/A'
-    tile_counts = Counter() # Initialize empty counter
+    tile_counts = Counter()
 
     try:
-        # Read the CSV file into a pandas DataFrame
         df = pd.read_csv(file_path)
-
-        # --- Calculate Average Turn ---
         if 'Turn' in df.columns:
             # Convert 'Turn' column to numeric, coercing errors to NaN
             numeric_turns = pd.to_numeric(df['Turn'], errors='coerce')
@@ -66,7 +61,6 @@ for file_name in csv_files:
             print("  Column 'Turn' not found in file. Cannot calculate average turn.")
             avg_turn = 'Turn column missing'
 
-        # --- Calculate Average Score ---
         if 'Score' in df.columns:
             # Convert 'Turn' column to numeric, coercing errors to NaN
             numeric_score = pd.to_numeric(df['Score'], errors='coerce')
