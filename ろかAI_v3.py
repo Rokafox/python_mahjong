@@ -80,12 +80,16 @@ class MahjongEnvironment:
         """
         ntidx: 他家がさき捨てた牌を記録したい時用
         """
-        state = np.zeros(self.N_TILE_TYPES * self.STATE_BITS, dtype=np.float32)
-        counter = Counter(self._tile_to_index(t) for t in self.手牌)
+        hand_state = np.zeros(self.N_TILE_TYPES * self.STATE_BITS, dtype=np.float32)
+        hand_exposed_state = np.zeros(self.N_TILE_TYPES * self.STATE_BITS, dtype=np.float32)
+        counter_hand = Counter(self._tile_to_index(t) for t in self.手牌 if not t.副露)
+        counter_hand_exposed = Counter(self._tile_to_index(t) for t in self.手牌 if t.副露)
         # Counter({22: 2, 0: 1, 1: 1, 2: 1, 9: 1})
         for idx in range(self.N_TILE_TYPES):
-            cnt = counter.get(idx, 0)
-            state[idx * self.STATE_BITS + cnt] = 1.0  # 0〜4
+            cnt = counter_hand.get(idx, 0)
+            cnt_1 = counter_hand_exposed.get(idx, 0)
+            hand_state[idx * self.STATE_BITS + cnt] = 1.0  # 0〜4
+            hand_exposed_state[idx * self.STATE_BITS + cnt_1] = 1.0  # 0〜4
         seat = np.zeros(4, dtype=np.float32) # 東南西北
         seat[self.seat] = 1.0
         discarded_tiles_counts = np.zeros(self.N_TILE_TYPES, dtype=np.float32)
@@ -96,8 +100,8 @@ class MahjongEnvironment:
         new_discarded_tile_by_others = np.zeros(self.N_TILE_TYPES, dtype=np.float32)
         if ndtidx >= 0:
             new_discarded_tile_by_others[ndtidx] = 1.0
-        # 170 + 4 + 34 + 34 = 242次元
-        return np.concatenate([state, seat, discarded_tiles_counts, new_discarded_tile_by_others])
+        # 170 + 170 + 4 + 34 + 34 = 412
+        return np.concatenate([hand_state, hand_exposed_state, seat, discarded_tiles_counts, new_discarded_tile_by_others])
 
 
     def _tile_to_index(self, tile):
@@ -179,13 +183,13 @@ class MahjongEnvironment:
         #     self.total_tennpai += len(何の牌)
         #     reward_extra += len(何の牌) * 50
         
-        mz_score = int(面子スコア(self.手牌) * 8)
-        self.mz_score += mz_score
-        reward_extra += mz_score
+        # mz_score = int(面子スコア(self.手牌) * 8)
+        # self.mz_score += mz_score
+        # reward_extra += mz_score
 
-        # tuiz_score = int(対子スコア(self.手牌) * 4)
-        # self.tuiz_score += tuiz_score
-        # reward_extra += tuiz_score
+        tuiz_score = int(対子スコア(self.手牌) * 8)
+        self.tuiz_score += tuiz_score
+        reward_extra += tuiz_score
 
         # tatsu_score = int(搭子スコア(self.手牌) * 4)
         # self.tatsu_score += tatsu_score
@@ -203,23 +207,30 @@ class MahjongEnvironment:
         #         self.penalty_A -= 3
 
         # Penalty for having exposed tiles
-        # the_exposed = [t for t in self.手牌 if t.副露]
-        # punishment_of_the_exposed = len(the_exposed) * 2
-        # reward_extra -= punishment_of_the_exposed
-        # self.penalty_A += punishment_of_the_exposed
+        the_exposed = [t for t in self.手牌 if t.副露]
+        punishment_of_the_exposed = len(the_exposed) * 30
+        reward_extra -= punishment_of_the_exposed
+        self.penalty_A += punishment_of_the_exposed
 
         # Custom Penalty
-        for t in self.手牌:
-            if t.何者 in {"東風", "南風", "西風", "北風"}:
-                # reward_extra += 12
-                # self.penalty_A -= 12
-                pass
-            elif t.何者 in {"萬子", "筒子", "索子"} and t.その上の数字 in {4,5,6}:
-                reward_extra += 4
-                self.penalty_A -= 4
-            else:
-                reward_extra -= 4
-                self.penalty_A += 4
+        # for t in self.手牌:
+        #     if t.何者 in {"東風", "南風", "西風", "北風"}:
+        #         # reward_extra += 12
+        #         # self.penalty_A -= 12
+        #         pass
+        #     elif t.何者 in {"萬子", "筒子", "索子"} and t.その上の数字 in {7,6,5}:
+        #         reward_extra += 4
+        #         self.penalty_A -= 4
+        #     else:
+        #         reward_extra -= 4
+        #         self.penalty_A += 4
+
+        # Custom 7 tui penalty
+        counter = Counter((t.何者, t.その上の数字) for t in self.手牌)
+        for key, cnt in counter.items():
+            if cnt == 2 or cnt == 4:
+                reward_extra += 7
+                self.penalty_A -= 7
 
         return reward_extra
 
@@ -301,6 +312,7 @@ class MahjongEnvironment:
 
 
     def _step_sandbag(self, actor: "DQNAgent"):
+        reward = 0
         # The sandbag cannot do anything but randomly discard a tile,
         # and the discarded tile is then added to the discard pile.
         # during sandbag's turn, the agent can "ロン", "ポン" the tile.
@@ -343,7 +355,7 @@ class MahjongEnvironment:
             # Agent can ロン
             print(f"ロン！{役}")
             self.完成した役 = 役
-            reward = int(点数)
+            reward += int(点数)
             done = True
             self.score += reward
             self.hand_when_complete = nicely_print_tiles(temp_hand)
@@ -406,7 +418,12 @@ class MahjongEnvironment:
                     # Set current actor to agent for immediate play
                     self.current_actor = 0
                     self.agent_after_pon = True
-                    return self._get_state(), 0, done, {"score": self.score, "turn": self.turn,
+
+                    if not self.is_test_environment:
+                        reward += self._agent_extra_reward(self.手牌)
+                    self.score += reward
+
+                    return self._get_state(), reward, done, {"score": self.score, "turn": self.turn,
                                                     "penalty_A": self.penalty_A,
                                                     "tenpai": self.total_tennpai,
                                                     "mz_score": self.mz_score,
@@ -480,7 +497,12 @@ class MahjongEnvironment:
 
                         self.current_actor = 0
                         self.agent_after_pon = True  # Reuse the same flag for simplicity
-                        return self._get_state(), 0, done, {"score": self.score, "turn": self.turn,
+
+                        if not self.is_test_environment:
+                            reward += self._agent_extra_reward(self.手牌)
+                        self.score += reward
+
+                        return self._get_state(), reward, done, {"score": self.score, "turn": self.turn,
                                                         "penalty_A": self.penalty_A,
                                                         "tenpai": self.total_tennpai,
                                                         "mz_score": self.mz_score,
@@ -501,8 +523,13 @@ class MahjongEnvironment:
         if agent_did_nothing:
             # print("The agent did not pon or chii.")
             final_action = 34
-        # Return state, no reward for agent during sandbag turns
-        return self._get_state(), 0, done, {"score": self.score, "turn": self.turn,
+
+        if not self.is_test_environment:
+            reward += self._agent_extra_reward(self.手牌)
+        self.score += reward
+
+        # Return state
+        return self._get_state(), reward, done, {"score": self.score, "turn": self.turn,
                                             "penalty_A": self.penalty_A,
                                             "tenpai": self.total_tennpai,
                                             "mz_score": self.mz_score,
@@ -826,7 +853,7 @@ def train_agent(episodes: int = 2999, name: str = "agent",
                 device: str = "cuda", save_every_this_ep: int = 1000,
                 save_after_this_ep: int = 900) -> DQNAgent:
     env = MahjongEnvironment()
-    state_size = env.observation_space.shape[0] if hasattr(env, 'observation_space') and env.observation_space.shape else 242 # Use env spec if available
+    state_size = env.observation_space.shape[0] if hasattr(env, 'observation_space') and env.observation_space.shape else 412 # Use env spec if available
     action_size = env.action_space.n if hasattr(env, 'action_space') else 34 + 3 # Use env spec if available
     agent = DQNAgent(state_size, action_size, device=device)
     assert save_every_this_ep >= 200, "Reasonable saving interval must be no less than 200."
@@ -844,7 +871,7 @@ def train_agent(episodes: int = 2999, name: str = "agent",
 
 
     # Load agent if name is provided and file exists
-    model_save_dir = "./DQN_agents/"
+    model_save_dir = "./DQN_agents_candidates/"
     os.makedirs(model_save_dir, exist_ok=True)
     model_path = os.path.join(model_save_dir, f"{name}.pth")
 
@@ -941,10 +968,10 @@ def train_agent(episodes: int = 2999, name: str = "agent",
     return agent
 
 
-def test_agent(episodes: int, model_path: str, device: str = "cpu") -> None:
+def test_agent(episodes: int, model_path: str, device: str = "cpu") -> tuple[float, float]:
     env = MahjongEnvironment()
     env.is_test_environment = True
-    agent = DQNAgent(242, 34 + 3, device=device)
+    agent = DQNAgent(412, 34 + 3, device=device)
     agent.epsilon = 0
     log_save_path = f"./log/test_{model_path.split('/')[-1].split('.')[0]}.csv"
     
@@ -958,7 +985,7 @@ def test_agent(episodes: int, model_path: str, device: str = "cpu") -> None:
     if log_save_path:
         if os.path.exists(log_save_path):
             print(f"Test file {log_save_path} already exist, skip.")
-            return None
+            return 0, 0
         with open(log_save_path, "a", encoding="utf-8") as f:
             f.write("Episode,Seat,Score,Turn,Yaku,MZ_Score,TEZ_Score,TAZ_Score,Tenpai,HandComplete,AgariRate\n")
     
@@ -1009,13 +1036,72 @@ def test_agent(episodes: int, model_path: str, device: str = "cpu") -> None:
     print(f"\n[TEST COMPLETE] Total episodes: {episodes}")
     print(f"Average score: {total_score/episodes:.2f}")
     print(f"Agari rate: {agari/episodes*100:.3f}%")
+    return total_score/episodes, agari/episodes*100
+
+
+def test_all_agent_candidates(episodes: int, device: str = "cpu") -> None:
+    agent_dir = "./DQN_agents_candidates/"
+    formal_agent_dir = "./DQN_agents/"
+    agent_files = [f for f in os.listdir(agent_dir) if f.endswith(".pth")]
+    
+    # Track best agent performance
+    best_agent_file = None
+    best_performance = float('-inf')  # Initialize with worst possible score
+    results = []
+    
+    # Test each agent and record results
+    for f in agent_files:
+        print(f"Testing agent: {f}")
+        avg_score, agari_rate = test_agent(episodes, f"{agent_dir}{f}", device)
+        
+        # Calculate a combined performance metric (you can adjust this formula)
+        performance = avg_score
+        results.append((f, avg_score, agari_rate, performance))
+        
+        # Update best agent if current one performs better
+        if performance > best_performance:
+            best_performance = performance
+            best_agent_file = f
+    
+    # Keep only the best agent, delete the others
+    if best_agent_file:
+        print(f"\n[BEST AGENT] {best_agent_file}")
+        print(f"Average score: {results[results.index((best_agent_file, *[r for r in results if r[0] == best_agent_file][0][1:]))][1]:.2f}")
+        print(f"Agari rate: {results[results.index((best_agent_file, *[r for r in results if r[0] == best_agent_file][0][1:]))][2]:.3f}%")
+        
+        # Delete all agents except the best one
+        for f in agent_files:
+            file_path = f"{agent_dir}{f}"
+            formal_file_path = f"{formal_agent_dir}{f}"
+            log_file_path = f"./log/test_{f.split('.')[0]}.csv"
+            
+            if f != best_agent_file:
+                try:
+                    # Delete model file
+                    os.remove(file_path)
+                    print(f"Deleted: {file_path}")
+                    
+                    # Delete corresponding log file
+                    if os.path.exists(log_file_path):
+                        os.remove(log_file_path)
+                        print(f"Deleted: {log_file_path}")
+                except Exception as e:
+                    print(f"Error deleting files: {e}")
+            else:
+                try:
+                    os.rename(file_path, formal_file_path)
+                except Exception as e:
+                    print(f"Error moving best agent: {e}")
+
+    else:
+        print("No agents were evaluated.")
 
 
 def test_all_agents(episodes: int, device: str = "cpu") -> None:
     agent_dir = "./DQN_agents/"
     agent_files = [f for f in os.listdir(agent_dir) if f.endswith(".pth")]
     for f in agent_files:
-        test_agent(episodes, f"{agent_dir}{f}", device)
+        avg_score, agari_rate = test_agent(episodes, f"{agent_dir}{f}", device)
 
 
 def test_mixed_agent(episodes: int, device: str = "cpu") -> None:
@@ -1106,7 +1192,7 @@ def test_mixed_agent(episodes: int, device: str = "cpu") -> None:
     env = MahjongEnvironment()
     env.is_test_environment = True
 
-    agent = DQNAgent(242, 34 + 3, device=device)
+    agent = DQNAgent(412, 34 + 3, device=device)
     agent.epsilon = 0 # Ensure deterministic action selection during testing
 
     # Prepare log file
@@ -1202,13 +1288,14 @@ def test_mixed_agent(episodes: int, device: str = "cpu") -> None:
 
 
 def train_and_test_pipeline():
-    agent_name = "8rd_hr"
+    agent_name = "7tui_hr_b"
     train_agent(2999, name=agent_name, device="cuda", save_every_this_ep=200, save_after_this_ep=900)
-    for v in [1000, 1200, 1400]:
-        test_agent(episodes=5000, model_path=f"./DQN_agents/{agent_name}_{str(v)}.pth", device="cuda")
+    test_all_agent_candidates(1000, "cuda")
 
 
 if __name__ == "__main__":
     train_and_test_pipeline()
-    # test_agent(episodes=5000, model_path=f"./DQN_agents/3rd_hr_200.pth", device="cuda")
+    # test_all_agent_candidates(1000, "cuda")
+    # test_all_agents(5000, 'cuda')
+    # test_agent(episodes=5000, model_path=f"./DQN_agents/7tui_hr_a_2800.pth", device="cuda")
     # test_mixed_agent(5000, "cuda")

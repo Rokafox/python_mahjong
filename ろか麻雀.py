@@ -1405,13 +1405,13 @@ def 点数計算(tiles: list[麻雀牌], seat: int) -> tuple[int, list[str], boo
             score += 32000
             yaku.append("四暗刻")
             win = True
-        if 四連刻(tiles):
-            score += 32000
-            yaku.append("四連刻")
-            win = True
         if 三連刻(tiles):
             score += 3000
             yaku.append("三連刻")
+            win = True
+        if 四連刻(tiles):
+            score += 32000
+            yaku.append("四連刻")
             win = True
         if 三色同刻(tiles):
             score += 32000

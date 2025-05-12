@@ -11,7 +11,7 @@ import os
 from typing import List, Dict, Tuple, Optional
 
 import torch
-from ろかAI_v2 import DQNAgent
+from ろかAI_v3 import DQNAgent
 from ろか麻雀 import calculate_weighted_preference_score, nicely_print_tiles, 基礎訓練山を作成する, 山を作成する, 点数計算, 聴牌ですか, 麻雀牌
 
 
@@ -643,6 +643,7 @@ if __name__ == "__main__":
                 player_win_yaku = []
                 for s in player_tile_slots:
                     s.set_tooltip("", delay=0.1)
+                draw_ui_opponent_hand()
                 return None
         else:
             # Hiruchaaru poned or chiied, so they do not draw, but need to discard.
@@ -750,6 +751,7 @@ if __name__ == "__main__":
                 player_win_yaku = []
                 for s in player_tile_slots:
                     s.set_tooltip("", delay=0.1)
+                draw_ui_opponent_hand()
 
     def draw_ui_player_labels():
         dic = {0: "東", 1: "南", 2: "西", 3: "北"}
@@ -866,6 +868,7 @@ if __name__ == "__main__":
 
                 for s in player_tile_slots:
                     s.set_tooltip("", delay=0.1)
+                draw_ui_opponent_hand()
             button_ron.hide()
         elif env.current_actor == 0:
             # Cancelled tsumo
@@ -933,7 +936,11 @@ if __name__ == "__main__":
     agent_files = [f for f in os.listdir("./DQN_agents/") if f.endswith(".pth")]
     agent_state_dicts: dict[str, collections.OrderedDict] = {}
     for filename in agent_files:
-        state_dict: collections.OrderedDict = torch.load(os.path.join("./DQN_agents/", filename), map_location="cuda")
+        try:
+            state_dict: collections.OrderedDict = torch.load(os.path.join("./DQN_agents/", filename), map_location="cuda")
+        except Exception as e:
+            print(e)
+            state_dict: collections.OrderedDict = torch.load(os.path.join("./DQN_agents/", filename), map_location="cpu")
         agent_state_dicts[filename] = state_dict
     # 2.
     agent_preferred_tiles = {}
