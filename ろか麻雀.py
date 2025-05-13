@@ -2,6 +2,7 @@ from collections import Counter
 from copy import deepcopy
 from itertools import combinations, permutations
 import linecache
+import math
 import random
 import re
 
@@ -129,14 +130,16 @@ class 麻雀牌:
 
 
 
-def calculate_weighted_preference_score(tiles_list: list[麻雀牌], input_string: str) -> int:
+def calculate_weighted_preference_score(tiles_list: list[麻雀牌], input_string: str, agent_score: int) -> int:
     """
     Given a list of Mahjong tiles and a string of preferred tiles with scores,
     calculates a weighted preference score for the tiles_list.
     The input_string is expected to be in the format "Tile Name (Score), Tile Name (Score), ...".
     The score for each tile in the tiles_list that matches a preferred tile
     in the input_string is added to the total weighted score.
+    Then, agent have its own score, ie 2274 ie 1542
     """
+    agent_score = int(float(agent_score))
     prefered_tiles_with_scores = {}
     # Use regex to find all tile name and score pairs
     matches = re.findall(r"([^,]+?)\s*\((\d+)\)", input_string)
@@ -152,7 +155,9 @@ def calculate_weighted_preference_score(tiles_list: list[麻雀牌], input_strin
         if tile_str in prefered_tiles_with_scores:
             total_weighted_score += prefered_tiles_with_scores[tile_str]
 
-    return total_weighted_score
+    # Use square root or other scaling to reduce impact
+    scaled_agent_score = math.sqrt(agent_score)
+    return total_weighted_score * scaled_agent_score
 
 
 # prefered_input_string = "筒子2 (9860), 筒子3 (8371), 筒子8 (6842), 筒子9 (6299), 筒子6 (4974), 筒子4 (4690), 筒子1 (4655), 筒子7 (4572), 筒子5 (4256), 索子6 (1644), 筒子5赤ドラ (1316), 索子7 (1074), 南風 (901), 索子5 (876), 索子4 (775), 萬子7 (751), 索子3 (701), 東風 (600), 萬子6 (384), 白ちゃん (381)"

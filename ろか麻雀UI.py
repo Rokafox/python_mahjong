@@ -92,28 +92,34 @@ class Env:
     # Methods for RL agent
     # ==========================
 
+
     def _get_state(self, ndtidx: int = -1) -> np.ndarray:
         """
         ntidx: 他家がさき捨てた牌を記録したい時用
         """
-        state = np.zeros(self.N_TILE_TYPES * self.STATE_BITS, dtype=np.float32)
-        counter = Counter(self._tile_to_index(t) for t in self.opponent_hand)
+        hand_state = np.zeros(self.N_TILE_TYPES * self.STATE_BITS, dtype=np.float32)
+        hand_exposed_state = np.zeros(self.N_TILE_TYPES * self.STATE_BITS, dtype=np.float32)
+        counter_hand = Counter(self._tile_to_index(t) for t in self.opponent_hand if not t.副露)
+        counter_hand_exposed = Counter(self._tile_to_index(t) for t in self.opponent_hand if t.副露)
         # Counter({22: 2, 0: 1, 1: 1, 2: 1, 9: 1})
         for idx in range(self.N_TILE_TYPES):
-            cnt = counter.get(idx, 0)
-            state[idx * self.STATE_BITS + cnt] = 1.0  # 0〜4
+            cnt = counter_hand.get(idx, 0)
+            cnt_1 = counter_hand_exposed.get(idx, 0)
+            hand_state[idx * self.STATE_BITS + cnt] = 1.0  # 0〜4
+            hand_exposed_state[idx * self.STATE_BITS + cnt_1] = 1.0  # 0〜4
         seat = np.zeros(4, dtype=np.float32) # 東南西北
         seat[self.opponent_seat] = 1.0
         discarded_tiles_counts = np.zeros(self.N_TILE_TYPES, dtype=np.float32)
         for tile in self.discard_pile_opponent:
             discarded_tiles_counts[self._tile_to_index(tile)] += 1.0
         discarded_tiles_counts /= 4.0  # 正規化（最大4枚）
-        # NOTE: 他家の副露も捨て牌として考えればよい
+        # NOTE: 実戦中他家の副露も捨て牌として考えればよい
         new_discarded_tile_by_others = np.zeros(self.N_TILE_TYPES, dtype=np.float32)
         if ndtidx >= 0:
             new_discarded_tile_by_others[ndtidx] = 1.0
-        # 170 + 4 + 34 + 34 = 242次元
-        return np.concatenate([state, seat, discarded_tiles_counts, new_discarded_tile_by_others])
+        # 170 + 170 + 4 + 34 + 34 = 412
+        return np.concatenate([hand_state, hand_exposed_state, seat, discarded_tiles_counts, new_discarded_tile_by_others])
+
 
 
     def _tile_to_index(self, tile):
@@ -991,7 +997,7 @@ if __name__ == "__main__":
             for filename, preferred_tiles_string in agent_preferred_tiles.items():
                 # Check if the agent's state dict was actually loaded
                 if filename in agent_state_dicts:
-                    score = calculate_weighted_preference_score(env.opponent_hand, preferred_tiles_string)
+                    score = calculate_weighted_preference_score(env.opponent_hand, preferred_tiles_string, 1)
                     if score > best_score:
                         best_score = score
                         selected_agent_filename = filename
