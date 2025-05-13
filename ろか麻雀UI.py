@@ -236,10 +236,10 @@ if __name__ == "__main__":
         print(f"Error loading icon: {e}")
 
     try:
-        dqn_agent = DQNAgent(242, 34 + 3, device="cuda")
+        dqn_agent = DQNAgent(412, 34 + 3, device="cuda")
     except Exception:
         print("Cuda Device not found, using cpu version.")
-        dqn_agent = DQNAgent(242, 34 + 3, device="cpu")
+        dqn_agent = DQNAgent(412, 34 + 3, device="cpu")
 
     dqn_agent.epsilon = 0
 

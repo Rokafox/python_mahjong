@@ -183,13 +183,13 @@ class MahjongEnvironment:
         #     self.total_tennpai += len(何の牌)
         #     reward_extra += len(何の牌) * 50
         
-        # mz_score = int(面子スコア(self.手牌) * 8)
-        # self.mz_score += mz_score
-        # reward_extra += mz_score
+        mz_score = int(面子スコア(self.手牌) * 8)
+        self.mz_score += mz_score
+        reward_extra += mz_score
 
-        tuiz_score = int(対子スコア(self.手牌) * 8)
-        self.tuiz_score += tuiz_score
-        reward_extra += tuiz_score
+        # tuiz_score = int(対子スコア(self.手牌) * 8)
+        # self.tuiz_score += tuiz_score
+        # reward_extra += tuiz_score
 
         # tatsu_score = int(搭子スコア(self.手牌) * 4)
         # self.tatsu_score += tatsu_score
@@ -207,30 +207,30 @@ class MahjongEnvironment:
         #         self.penalty_A -= 3
 
         # Penalty for having exposed tiles
-        the_exposed = [t for t in self.手牌 if t.副露]
-        punishment_of_the_exposed = len(the_exposed) * 30
-        reward_extra -= punishment_of_the_exposed
-        self.penalty_A += punishment_of_the_exposed
+        # the_exposed = [t for t in self.手牌 if t.副露]
+        # punishment_of_the_exposed = len(the_exposed) * 30
+        # reward_extra -= punishment_of_the_exposed
+        # self.penalty_A += punishment_of_the_exposed
 
         # Custom Penalty
-        # for t in self.手牌:
-        #     if t.何者 in {"東風", "南風", "西風", "北風"}:
-        #         # reward_extra += 12
-        #         # self.penalty_A -= 12
-        #         pass
-        #     elif t.何者 in {"萬子", "筒子", "索子"} and t.その上の数字 in {7,6,5}:
-        #         reward_extra += 4
-        #         self.penalty_A -= 4
-        #     else:
-        #         reward_extra -= 4
-        #         self.penalty_A += 4
+        for t in self.手牌:
+            if "字牌" in t.固有状態:
+                reward_extra += 4
+                self.penalty_A -= 4
+                # pass
+            elif t.何者 in {"索子"}:
+                reward_extra += 4
+                self.penalty_A -= 4
+            else:
+                reward_extra -= 12
+                self.penalty_A += 12
 
         # Custom 7 tui penalty
-        counter = Counter((t.何者, t.その上の数字) for t in self.手牌)
-        for key, cnt in counter.items():
-            if cnt == 2 or cnt == 4:
-                reward_extra += 7
-                self.penalty_A -= 7
+        # counter = Counter((t.何者, t.その上の数字) for t in self.手牌)
+        # for key, cnt in counter.items():
+        #     if cnt == 2 or cnt == 4:
+        #         reward_extra += 7
+        #         self.penalty_A -= 7
 
         return reward_extra
 
@@ -1055,7 +1055,7 @@ def test_all_agent_candidates(episodes: int, device: str = "cpu") -> None:
         avg_score, agari_rate = test_agent(episodes, f"{agent_dir}{f}", device)
         
         # Calculate a combined performance metric (you can adjust this formula)
-        performance = avg_score
+        performance = avg_score * agari_rate
         results.append((f, avg_score, agari_rate, performance))
         
         # Update best agent if current one performs better
@@ -1288,8 +1288,8 @@ def test_mixed_agent(episodes: int, device: str = "cpu") -> None:
 
 
 def train_and_test_pipeline():
-    agent_name = "7tui_hr_b"
-    train_agent(2999, name=agent_name, device="cuda", save_every_this_ep=200, save_after_this_ep=900)
+    agent_name = "sou_honiz"
+    train_agent(2999, name=agent_name, device="cuda", save_every_this_ep=200, save_after_this_ep=599)
     test_all_agent_candidates(1000, "cuda")
 
 
