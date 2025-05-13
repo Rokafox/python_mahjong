@@ -184,17 +184,17 @@ class MahjongEnvironment:
         #     self.total_tennpai += len(何の牌)
         #     reward_extra += len(何の牌) * 50
         
-        # mz_score = int(面子スコア(self.手牌) * 8)
-        # self.mz_score += mz_score
-        # reward_extra += mz_score
+        mz_score = int(面子スコア(self.手牌) * 8)
+        self.mz_score += mz_score
+        reward_extra += mz_score
 
-        # tuiz_score = int(対子スコア(self.手牌) * 4)
-        # self.tuiz_score += tuiz_score
-        # reward_extra += tuiz_score
+        tuiz_score = int(対子スコア(self.手牌) * 4)
+        self.tuiz_score += tuiz_score
+        reward_extra += tuiz_score
 
-        # tatsu_score = int(搭子スコア(self.手牌) * 4)
-        # self.tatsu_score += tatsu_score
-        # reward_extra += tatsu_score
+        tatsu_score = int(搭子スコア(self.手牌) * 4)
+        self.tatsu_score += tatsu_score
+        reward_extra += tatsu_score
 
         ht_counter = Counter((t.何者, t.その上の数字) for t in self.手牌)
 
@@ -234,67 +234,68 @@ class MahjongEnvironment:
 
         # Custom Penalty
         for t in self.手牌:
-            # if "字牌" in t.固有状態:
-            #     reward_extra -= 15
-            #     self.penalty_A += 15
+            if "字牌" in t.固有状態:
+                reward_extra += 15
+                self.penalty_A -= 15
 
-            if t.何者 in {"筒子"} and t.その上の数字 in {1,2,3}:
-                reward_extra += 6
-                self.penalty_A -= 6
-            elif t.何者 in {"索子"} and t.その上の数字 in {4,5,6}:
-                reward_extra += 6
-                self.penalty_A -= 6
-            elif t.何者 in {"萬子"} and t.その上の数字 in {7,8,9}:
-                reward_extra += 6
-                self.penalty_A -= 6
+            # if t.何者 in {"萬子"} and t.その上の数字 in {1,2,3}:
+            #     reward_extra += 3
+            #     self.penalty_A -= 3
+            # elif t.何者 in {"索子"} and t.その上の数字 in {4,5,6}:
+            #     reward_extra += 3
+            #     self.penalty_A -= 3
+            # elif t.何者 in {"筒子"} and t.その上の数字 in {7,8,9}:
+            #     reward_extra += 3
+            #     self.penalty_A -= 3
             else:
-                reward_extra -= 6
-                self.penalty_A += 6
+                reward_extra -= 15
+                self.penalty_A += 15
 
 
-        suits = ("萬子", "筒子", "索子")
-        # Define the three sequence groups
-        sequences = [(1, 2, 3), (4, 5, 6), (7, 8, 9)]
+        # suits = ("萬子", "筒子", "索子")
+        # # Define the three sequence groups
+        # sequences = [(1, 2, 3), (4, 5, 6), (7, 8, 9)]
         
-        # For rule 3: Check if we can assign one sequence to each 萬子
-        # Then remove that sequence, check if we can assign 1 to 筒子,
-        # then, check if we can assign the last one to 索子.
-        # We also need to consider there could be mulitiple seq to assign to each suit, try all of them.
-        # Check if each suit can claim at least one complete sequence
-        suit_sequences = {}
-        for suit in suits:
-            suit_sequences[suit] = []
-            for seq in sequences:
-                # Check if this suit has all numbers in this sequence
-                if all(ht_counter.get((suit, n), 0) >= 1 for n in seq):
-                    suit_sequences[suit].append(seq)
+        # # For rule 3: Check if we can assign one sequence to each 萬子
+        # # Then remove that sequence, check if we can assign 1 to 筒子,
+        # # then, check if we can assign the last one to 索子.
+        # # We also need to consider there could be mulitiple seq to assign to each suit, try all of them.
+        # # Check if each suit can claim at least one complete sequence
+        # suit_sequences = {}
+        # for suit in suits:
+        #     suit_sequences[suit] = []
+        #     for seq in sequences:
+        #         # Check if this suit has all numbers in this sequence
+        #         if all(ht_counter.get((suit, n), 0) >= 1 for n in seq):
+        #             suit_sequences[suit].append(seq)
+        #             reward_extra += 6
+        #             self.penalty_A -= 6
         
-        # For each possible ordering of the sequences
-        for seq_ordering in permutations(sequences):
-            # Try to assign sequences to suits in this order
-            assignment_works = True
-            used_suits = set()
-            suit_to_seq = {}  # Map suits to their assigned sequences
+        # # For each possible ordering of the sequences
+        # for seq_ordering in permutations(sequences):
+        #     # Try to assign sequences to suits in this order
+        #     assignment_works = True
+        #     used_suits = set()
+        #     suit_to_seq = {}  # Map suits to their assigned sequences
             
-            for seq in seq_ordering:
-                # Find a suit that can claim this sequence and hasn't been used
-                assigned = False
-                for suit in suits:
-                    if suit not in used_suits and seq in suit_sequences[suit]:
-                        used_suits.add(suit)
-                        suit_to_seq[suit] = seq  # Store the assignment
-                        assigned = True
-                        break
+        #     for seq in seq_ordering:
+        #         # Find a suit that can claim this sequence and hasn't been used
+        #         assigned = False
+        #         for suit in suits:
+        #             if suit not in used_suits and seq in suit_sequences[suit]:
+        #                 used_suits.add(suit)
+        #                 suit_to_seq[suit] = seq  # Store the assignment
+        #                 assigned = True
+        #                 break
                 
-                if not assigned:
-                    assignment_works = False
-                    break
+        #         if not assigned:
+        #             assignment_works = False
+        #             break
             
-            # If we found a valid assignment, return True
-            if assignment_works and len(used_suits) == len(suits):
-                print("3tsu_passed")
-                reward_extra += 80
-                self.penalty_A -= 80
+        #     # If we found a valid assignment, return True
+        #     if assignment_works and len(used_suits) == len(suits):
+        #         reward_extra += 80
+        #         self.penalty_A -= 80
 
         # Custom 7 tui penalty
         # counter = Counter((t.何者, t.その上の数字) for t in self.手牌)
@@ -343,9 +344,9 @@ class MahjongEnvironment:
         assert len(valid_actions) > 0
         action: int
         action, full_dict = actor.act(self._get_state(), valid_actions)
-        # if not self.is_test_environment:
-        #     # reward -= 2  # base penalty
-        #     reward -= int(self.turn)
+        if not self.is_test_environment:
+            # reward -= 2  # base penalty
+            reward -= int(self.turn)
         tile_type = self._index_to_tile_type(action)
         # print(tile_type) # ('筒子', 5)
         target_tile = None
@@ -1365,14 +1366,14 @@ def test_mixed_agent(episodes: int, device: str = "cpu") -> None:
 
 
 def train_and_test_pipeline():
-    agent_name = "3tsu2_600"
+    agent_name = "zi0"
     train_agent(999, name=agent_name, device="cuda", save_every_this_ep=100, save_after_this_ep=99)
     test_all_agent_candidates(1000, "cuda")
 
 
 if __name__ == "__main__":
-    train_and_test_pipeline()
+    # train_and_test_pipeline()
     # test_all_agent_candidates(1000, "cuda")
     # test_all_agents(1000, 'cuda')
     # test_agent(episodes=5000, model_path=f"./DQN_agents/7tui_hr_a_2800.pth", device="cuda")
-    # test_mixed_agent(3000, "cuda")
+    test_mixed_agent(3000, "cuda")
