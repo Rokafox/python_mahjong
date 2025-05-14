@@ -10,7 +10,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
-from ろか麻雀 import calculate_weighted_preference_score, nicely_print_tiles, 刻子スコア, 対子スコア, 搭子スコア, 聴牌ですか, 順子スコア, 麻雀牌, 山を作成する, 面子スコア, 点数計算
+from ろか麻雀 import calculate_weighted_preference_score, nicely_print_tiles, 刻子スコア, 基礎訓練山を作成する, 対子スコア, 搭子スコア, 聴牌ですか, 順子スコア, 麻雀牌, 山を作成する, 面子スコア, 点数計算
 
 
 class MahjongEnvironment:
@@ -74,6 +74,7 @@ class MahjongEnvironment:
         self.score = 0
         self.turn  = 0
         self.penalty_A = 0
+        self.is_tenpai: bool = False
         self.total_tennpai = 0
         self.mz_score = 0
         self.tuiz_score = 0
@@ -279,67 +280,96 @@ class MahjongEnvironment:
         reward_extra = 0
 
         # 聴牌の場合、大量の報酬を与える
-        # NOTE: Check tenpai every turn is slow
-        # 聴牌, 何の牌 = 聴牌ですか(self.手牌, self.seat)
-        # if 聴牌:
-        #     reward_extra += 300
-        #     # print(f"聴牌:")
-        #     # for p in 何の牌:
-        #     #     print(f"{p.何者} {p.その上の数字}")
-        #     self.total_tennpai += len(何の牌)
-        #     reward_extra += len(何の牌) * 50
+        if self.is_tenpai:
+            reward_extra += 300
+            self.total_tennpai += 1
         
-        # mz_score = int(面子スコア(self.手牌) * 8)
-        # self.mz_score += mz_score
-        # reward_extra += mz_score
+        mz_score = int(面子スコア(self.手牌) * 4)
+        self.mz_score += mz_score
+        reward_extra += mz_score
 
-        tuiz_score = int(刻子スコア(self.手牌) * 8)
-        self.tuiz_score += tuiz_score
-        reward_extra += tuiz_score
+        # tuiz_score = int(刻子スコア(self.手牌) * 4)
+        # self.tuiz_score += tuiz_score
+        # reward_extra += tuiz_score
 
-        # tatsu_score = int(順子スコア(self.手牌) * 8)
+        # tatsu_score = int(順子スコア(self.手牌) * 4)
         # self.tatsu_score += tatsu_score
         # reward_extra += tatsu_score
 
+        # tuiz_score += int(対子スコア(self.手牌) * 8)
+        # self.tuiz_score += tuiz_score
+        # reward_extra += tuiz_score
+
         ht_counter = Counter((t.何者, t.その上の数字) for t in self.手牌)
 
-        # tuitui reward system
-        for t in self.手牌:
-            if t.exposed_state == 'pon':
-                reward_extra += 6
-                self.penalty_A -= 6
-            elif t.exposed_state == 'chii':
-                reward_extra -= 6
-                self.penalty_A += 6
-        reward_extra += (10 - len(ht_counter)) * 19
-        self.penalty_A -= (10 - len(ht_counter)) * 19
+        # tuitui reward system. Suggested training episodes: 99
+        # for t in self.手牌:
+        #     if t.exposed_state == 'pon':
+        #         reward_extra += 6
+        #         self.penalty_A -= 6
+        #     elif t.exposed_state == 'chii':
+        #         reward_extra -= 60
+        #         self.penalty_A += 60
+        # reward_extra += (10 - len(ht_counter)) * 50
+        # self.penalty_A -= (10 - len(ht_counter)) * 50
 
-        # Penalty for having 4,5,6.
+        # zuiso reward system. Suggested training episodes: 99
+        # for t in self.手牌:
+        #     if "字牌" in t.固有状態:
+        #         reward_extra += 30
+        #         self.penalty_A -= 30
+        #     else:
+        #         reward_extra -= 30
+        #         self.penalty_A += 30
+
+        # green iso reward system. Suggested training episodes: untested
+        # for key, cnt in ht_counter.items():
+        #     if key[0] == "索子":
+        #         if key[1] in [2, 3, 4, 6, 8]:
+        #             reward_extra += 30 * cnt
+        #             self.penalty_A -= 30 * cnt
+        #     elif key[0] == "發ちゃん":
+        #         reward_extra += 30 * cnt
+        #         self.penalty_A -= 30 * cnt
+        #     else:
+        #         reward_extra -= 30 * cnt
+        #         self.penalty_A += 30 * cnt
+
+        # qin itu. Suggested training episodes 300 - 1000
+        # for key, cnt in ht_counter.items():
+        #     if key[0] == "萬子": # "萬子", "筒子", "索子"
+        #         reward_extra += 30 * cnt
+        #         self.penalty_A -= 30 * cnt
+        #     else:
+        #         reward_extra -= 30 * cnt
+        #         self.penalty_A += 30 * cnt
+
+
+        # Chyanta. Suggested training episodes 300 - 1000
         # for t in self.手牌:
         #     if t.何者 in {"萬子", "筒子", "索子"} and t.その上の数字 in {4,5,6}:
-        #         reward_extra -= 6
-        #         self.penalty_A += 6
+        #         reward_extra -= 60
+        #         self.penalty_A += 60
         #     else:
-        #         reward_extra += 3
-        #         self.penalty_A -= 3
-
+        #         reward_extra += 30
+        #         self.penalty_A -= 30
         # for key, cnt in ht_counter.items():
         #     if key[1] == 2:
         #         if ht_counter[(key[0], 3)] != cnt or ht_counter[(key[0], 1)] < cnt:
-        #             reward_extra -= 6
-        #             self.penalty_A += 6
+        #             reward_extra -= 60
+        #             self.penalty_A += 60
         #     if key[1] == 3:
         #         if ht_counter[(key[0], 2)] != cnt or ht_counter[(key[0], 1)] < cnt:
-        #             reward_extra -= 6
-        #             self.penalty_A += 6
+        #             reward_extra -= 60
+        #             self.penalty_A += 60
         #     if key[1] == 8:
         #         if ht_counter[(key[0], 7)] != cnt or ht_counter[(key[0], 9)] < cnt:
-        #             reward_extra -= 6
-        #             self.penalty_A += 6
+        #             reward_extra -= 60
+        #             self.penalty_A += 60
         #     if key[1] == 7:
         #         if ht_counter[(key[0], 8)] != cnt or ht_counter[(key[0], 9)] < cnt:
-        #             reward_extra -= 6
-        #             self.penalty_A += 6
+        #             reward_extra -= 60
+        #             self.penalty_A += 60
 
 
         # Penalty for having exposed tiles
@@ -348,23 +378,6 @@ class MahjongEnvironment:
         # reward_extra -= punishment_of_the_exposed
         # self.penalty_A += punishment_of_the_exposed
 
-        # Custom Penalty
-        # for t in self.手牌:
-        #     if "字牌" in t.固有状態:
-        #         reward_extra += 15
-        #         self.penalty_A -= 15
-            # if t.何者 in {"萬子"} and t.その上の数字 in {1,2,3}:
-            #     reward_extra += 3
-            #     self.penalty_A -= 3
-            # elif t.何者 in {"索子"} and t.その上の数字 in {4,5,6}:
-            #     reward_extra += 3
-            #     self.penalty_A -= 3
-            # elif t.何者 in {"筒子"} and t.その上の数字 in {7,8,9}:
-            #     reward_extra += 3
-            #     self.penalty_A -= 3
-            # else:
-            #     reward_extra -= 15
-            #     self.penalty_A += 15
 
         # Custom 7 tui penalty
         # counter = Counter((t.何者, t.その上の数字) for t in self.手牌)
@@ -385,6 +398,7 @@ class MahjongEnvironment:
 
         if not after_pon:
             tenpai_before_draw, list_of_tanpai = 聴牌ですか(self.手牌, self.seat)
+            self.is_tenpai = tenpai_before_draw
             newly_drawn_tile = self.山.pop(0)
             self.手牌.append(newly_drawn_tile)
         else:
@@ -528,9 +542,13 @@ class MahjongEnvironment:
                                                 "hand_when_complete": self.hand_when_complete}, -1
 
         agent_did_nothing = False
+        pass_pon_and_chii = False
+
+        if self.is_tenpai:
+            pass_pon_and_chii = True
 
         # Only if the agent has more than 2 tiles in hand, pon is possible
-        if len([t for t in self.手牌 if not t.副露]) > 1:
+        if not pass_pon_and_chii and len([t for t in self.手牌 if not t.副露]) > 1:
             # Check if agent can ポン (pong)
             # Count how many of the discarded tile type the agent has
             same_tile_count = 0
@@ -585,7 +603,7 @@ class MahjongEnvironment:
         # Agent can only Chii if they have two consecutive tiles that can form a sequence with the discarded tile
         # Custom rule: agent can only chii if the discarded tile is 中張牌 (2-8), and the only allowed sequence is (n-1, n, n+1)
         # Custom rule: any player can chii from any other player
-        if len([t for t in self.手牌 if not t.副露]) > 2:
+        if not pass_pon_and_chii and len([t for t in self.手牌 if not t.副露]) > 2:
             can_chii = False
             chii_tiles = []
             
@@ -666,7 +684,7 @@ class MahjongEnvironment:
         self.current_actor = (self.current_actor + 1) % 2
         self.turn += 1
         final_action = -1
-        if agent_did_nothing:
+        if agent_did_nothing or pass_pon_and_chii:
             # print("The agent did not pon or chii.")
             final_action = 14
 
@@ -1064,10 +1082,10 @@ def train_agent(episodes: int = 2999, name: str = "agent",
                 agent.decay_epsilon()
 
                 # Add episode to episodic memory if successful
-                # if ep_reward > agent.SUCCESS_REWARD_THRESHOLD:
+                if ep_reward > agent.SUCCESS_REWARD_THRESHOLD:
                 # Or: Add to memory as long as it is a win.
-                yaku_list: list = info.get('completeyaku', [])
-                if len(yaku_list) > 0:
+                # yaku_list: list = info.get('completeyaku', [])
+                # if len(yaku_list) > 0:
                     # Pass the collected transitions and the total reward
                     agent.add_episode_to_memory(agent.current_episode_transitions, ep_reward)
                     # print(f"Episode {ep+1}: Added to episodic memory with reward {ep_reward}") # Debugging
@@ -1123,7 +1141,7 @@ def train_agent(episodes: int = 2999, name: str = "agent",
     return agent
 
 
-def test_agent(episodes: int, model_path: str, device: str = "cpu") -> tuple[float, float]:
+def test_agent(episodes: int, model_path: str, device: str = "cpu", target_yaku: str = "None") -> tuple[float, float, int]:
     env = MahjongEnvironment()
     env.is_test_environment = True
     agent = DQNAgent(92, 17, device=device)
@@ -1140,13 +1158,14 @@ def test_agent(episodes: int, model_path: str, device: str = "cpu") -> tuple[flo
     if log_save_path:
         if os.path.exists(log_save_path):
             print(f"Test file {log_save_path} already exist, skip.")
-            return 0, 0
+            return 0, 0, 0
         with open(log_save_path, "a", encoding="utf-8") as f:
             f.write("Episode,Seat,Score,Turn,Yaku,MZ_Score,TEZ_Score,TAZ_Score,Tenpai,HandComplete,AgariRate\n")
     
     # Statistics tracking
     agari = 0
     total_score = 0
+    target_yaku_cnt = 0
     
     for ep in range(episodes):
         state = env.reset()
@@ -1168,6 +1187,10 @@ def test_agent(episodes: int, model_path: str, device: str = "cpu") -> tuple[flo
                 
                 if 'completeyaku' in info and info['completeyaku']:
                     agari += 1
+                # print(target_yaku)
+                # print(info["completeyaku"])
+                if 'completeyaku' in info and target_yaku in info['completeyaku']:
+                    target_yaku_cnt += 1
                 
                 # Calculate current Agari rate
                 current_agari_rate = (agari / (ep + 1)) * 100
@@ -1184,17 +1207,20 @@ def test_agent(episodes: int, model_path: str, device: str = "cpu") -> tuple[flo
                 if (ep + 1) % 500 == 0:
                     print(f"[TEST] Episode {ep+1}/{episodes} completed. "
                          f"Avg score: {total_score/(ep+1):.2f}, "
-                         f"Agari rate: {current_agari_rate:.2f}%")
+                         f"Agari rate: {current_agari_rate:.2f}%"
+                         f"Target Yaku Complete: {target_yaku_cnt} times."
+                         )
                 break
     
     # Final statistics
     print(f"\n[TEST COMPLETE] Total episodes: {episodes}")
     print(f"Average score: {total_score/episodes:.2f}")
     print(f"Agari rate: {agari/episodes*100:.3f}%")
-    return total_score/episodes, agari/episodes*100
+    print(f"Target Yaku completed {target_yaku_cnt} times.")
+    return total_score/episodes, agari/episodes*100, target_yaku_cnt
 
 
-def test_all_agent_candidates(episodes: int, device: str = "cpu") -> None:
+def test_all_agent_candidates(episodes: int, device: str = "cpu", target_yaku: str = "None", delete_poor: bool = True) -> None:
     agent_dir = "./DQN_agents_candidates/"
     formal_agent_dir = "./DQN_agents/"
     agent_files = [f for f in os.listdir(agent_dir) if f.endswith(".pth")]
@@ -1207,10 +1233,12 @@ def test_all_agent_candidates(episodes: int, device: str = "cpu") -> None:
     # Test each agent and record results
     for f in agent_files:
         print(f"Testing agent: {f}")
-        avg_score, agari_rate = test_agent(episodes, f"{agent_dir}{f}", device)
+        avg_score, agari_rate, tkc = test_agent(episodes, f"{agent_dir}{f}", device, target_yaku)
         
         # Calculate a combined performance metric (you can adjust this formula)
-        performance = avg_score * agari_rate
+        # performance = avg_score * agari_rate
+        # performance = agari_rate
+        performance = tkc
         results.append((f, avg_score, agari_rate, performance))
         
         # Update best agent if current one performs better
@@ -1218,6 +1246,9 @@ def test_all_agent_candidates(episodes: int, device: str = "cpu") -> None:
             best_performance = performance
             best_agent_file = f
     
+    if not delete_poor:
+        return None
+
     # Keep only the best agent, delete the others
     if best_agent_file:
         print(f"\n[BEST AGENT] {best_agent_file}")
@@ -1256,19 +1287,19 @@ def test_all_agents(episodes: int, device: str = "cpu") -> None:
     agent_dir = "./DQN_agents/"
     agent_files = [f for f in os.listdir(agent_dir) if f.endswith(".pth")]
     for f in agent_files:
-        avg_score, agari_rate = test_agent(episodes, f"{agent_dir}{f}", device)
+        avg_score, agari_rate, tkc = test_agent(episodes, f"{agent_dir}{f}", device, "対々和")
 
 
 
 def train_and_test_pipeline():
-    agent_name = "AI_テスト"
-    train_agent(1499, name=agent_name, device="cuda", save_every_this_ep=100, save_after_this_ep=50)
-    test_all_agent_candidates(400, "cuda")
+    agent_name = "AI_混全帯么九_900"
+    train_agent(999, name=agent_name, device="cuda", save_every_this_ep=100, save_after_this_ep=50)
+    test_all_agent_candidates(500, "cuda", target_yaku="混全帯么九")
 
 
 if __name__ == "__main__":
     train_and_test_pipeline()
-    # test_all_agent_candidates(1000, "cuda")
+    # test_all_agent_candidates(500, "cuda", delete_poor=True, target_yaku="対々和")
     # test_all_agents(1000, 'cuda')
     # test_agent(episodes=5000, model_path=f"./DQN_agents/7tui_hr_a_2800.pth", device="cuda")
 

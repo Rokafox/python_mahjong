@@ -11,7 +11,7 @@ import os
 from typing import List, Dict, Tuple, Optional
 
 import torch
-from ろかAI_v3 import DQNAgent
+from ろかAI_v4 import DQNAgent
 from ろか麻雀 import calculate_weighted_preference_score, nicely_print_tiles, 基礎訓練山を作成する, 山を作成する, 点数計算, 聴牌ですか, 麻雀牌
 
 
@@ -20,8 +20,17 @@ class Env:
     """
     Mahjong game env
     """
-    N_TILE_TYPES = 34               # 萬・筒・索 (9*3) + 字牌 7
-    STATE_BITS = 5                 # 0,1,2,3,4 枚の one‑hot
+
+    SUIT_MAPPING = {"萬子": 0, "筒子": 1, "索子": 2}
+    HONOR_ID_MAPPING = {
+        "東風": 1, "南風": 2, "西風": 3, "北風": 4,
+        "白ちゃん": 5, "發ちゃん": 6, "中ちゃん": 7
+    }
+    _MAX_DISCARD_GROUPS = 14
+    ACTION_PASS = _MAX_DISCARD_GROUPS + 0
+    ACTION_PON = _MAX_DISCARD_GROUPS + 1
+    ACTION_CHI = _MAX_DISCARD_GROUPS + 2
+    AGENT_HAND_SIZE = 13
 
     def __init__(self):
         self.山: list[麻雀牌] = []
@@ -39,6 +48,7 @@ class Env:
         self.player_points = 25000
         self.opponent_points = 25000
         self.starting_points = 25000 
+        self.action_lgid_to_canonical_map: dict[int, int] = {} # For dqn_agent
 
     def start_new_game(self, opponent_name: str):
         self.opponent_name = opponent_name
@@ -66,6 +76,7 @@ class Env:
                 self.opponent_seat = 1
         self.game_complete = False
         assert len(self.山) == 136 - 26
+        self.action_lgid_to_canonical_map.clear()
 
     def generate_pile(self):
         self.山 = 山を作成する()
@@ -93,98 +104,204 @@ class Env:
     # ==========================
 
 
-    def _get_state(self, ndtidx: int = -1) -> np.ndarray:
+    # def get_valid_actions(self, extra_tile_idx: int, tenpai: bool=False) -> list[int]:
+    #     if self.current_actor == 1: # Opponent
+    #         # 行動：牌を捨てる
+    #         # 聴牌の時、もらった牌を捨てるだけにしとこう
+    #         if tenpai and extra_tile_idx >= 0:
+    #             return [extra_tile_idx]
+    #         hand_tiles = [self._tile_to_index(t) for t in self.opponent_hand if not t.副露]
+    #         if extra_tile_idx >= 0:
+    #             hand_tiles.append(extra_tile_idx)
+    #         hand_tiles = sorted(set(hand_tiles))
+    #         return hand_tiles
+    #     else:
+    #         # 行動：何もしない・ポン・チー
+    #         # 14, 15, 16
+    #         return [14, 15, 16]
+
+    def _get_canonical_id(self, tile: 麻雀牌) -> int:
+        """Still useful for comparing tiles or other internal logic."""
+        if tile is None: return -1
+        category, num = tile.何者, tile.その上の数字
+        if category == "萬子": return num - 1
+        if category == "筒子": return 9 + num - 1
+        if category == "索子": return 18 + num - 1
+        if category == "東風": return 27
+        if category == "南風": return 28
+        if category == "西風": return 29
+        if category == "北風": return 30
+        if category == "白ちゃん": return 31
+        if category == "發ちゃん": return 32
+        if category == "中ちゃん": return 33
+        return -2 # Should not happen
+
+    def _are_tiles_identical_type(self, tile1: 麻雀牌, tile2: 麻雀牌) -> bool:
+        """Checks if two tiles are of the exact same type (e.g., 1 Man == 1 Man)."""
+        if tile1 is None or tile2 is None:
+            return tile1 is tile2 # Both None is True, one None is False
+        # Using __eq__ defined in 麻雀牌 if available and appropriate,
+        # or comparing canonical IDs.
+        # return tile1 == tile2 # If __eq__ is defined for type matching
+        return self._get_canonical_id(tile1) == self._get_canonical_id(tile2)
+
+
+    def _get_tile_base_properties(self, tile: 麻雀牌, is_explicitly_exposed: bool = None) -> tuple:
         """
-        ntidx: 他家がさき捨てた牌を記録したい時用
+        Extracts base properties (excluding local group ID).
+        Returns: (suit_cat, number, is_exposed, is_honor, honor_id_val)
         """
-        hand_state = np.zeros(self.N_TILE_TYPES * self.STATE_BITS, dtype=np.float32)
-        hand_exposed_state = np.zeros(self.N_TILE_TYPES * self.STATE_BITS, dtype=np.float32)
-        counter_hand = Counter(self._tile_to_index(t) for t in self.opponent_hand if not t.副露)
-        counter_hand_exposed = Counter(self._tile_to_index(t) for t in self.opponent_hand if t.副露)
-        # Counter({22: 2, 0: 1, 1: 1, 2: 1, 9: 1})
-        for idx in range(self.N_TILE_TYPES):
-            cnt = counter_hand.get(idx, 0)
-            cnt_1 = counter_hand_exposed.get(idx, 0)
-            hand_state[idx * self.STATE_BITS + cnt] = 1.0  # 0〜4
-            hand_exposed_state[idx * self.STATE_BITS + cnt_1] = 1.0  # 0〜4
-        seat = np.zeros(4, dtype=np.float32) # 東南西北
-        seat[self.opponent_seat] = 1.0
-        discarded_tiles_counts = np.zeros(self.N_TILE_TYPES, dtype=np.float32)
-        for tile in self.discard_pile_opponent:
-            discarded_tiles_counts[self._tile_to_index(tile)] += 1.0
-        discarded_tiles_counts /= 4.0  # 正規化（最大4枚）
-        # NOTE: 実戦中他家の副露も捨て牌として考えればよい
-        new_discarded_tile_by_others = np.zeros(self.N_TILE_TYPES, dtype=np.float32)
-        if ndtidx >= 0:
-            new_discarded_tile_by_others[ndtidx] = 1.0
-        # 170 + 170 + 4 + 34 + 34 = 412
-        return np.concatenate([hand_state, hand_exposed_state, seat, discarded_tiles_counts, new_discarded_tile_by_others])
+        if tile is None:
+            return (-1, 0, 0, 0, 0) # suit_cat, number, exposed, is_honor, honor_id
+
+        suit_val, num_val = tile.何者, tile.その上の数字
+        is_honor_val, honor_id_val, suit_cat = 0, 0, -1
+
+        if suit_val in self.SUIT_MAPPING:
+            suit_cat = self.SUIT_MAPPING[suit_val]
+        else: # Honor tiles
+            suit_cat = 3 # Dedicated category for honors
+            is_honor_val = 1
+            honor_id_val = self.HONOR_ID_MAPPING.get(suit_val, 0)
+            num_val = 0
+
+        is_exposed_val = int(is_explicitly_exposed) if is_explicitly_exposed is not None else int(tile.副露)
+        return (suit_cat, num_val, is_exposed_val, is_honor_val, honor_id_val)
 
 
+    def _get_state_unified(self, last_tile: 麻雀牌 = None) -> np.ndarray:
+        actual_hand_tiles = sorted(
+            [tile for tile in self.opponent_hand if tile is not None],
+            key=lambda t: self._get_canonical_id(t)
+        )
 
-    def _tile_to_index(self, tile):
-        """Convert tile to unique index"""
-        if tile.何者 == "萬子":
-            return tile.その上の数字 - 1
-        elif tile.何者 == "筒子":
-            return 9 + tile.その上の数字 - 1
-        elif tile.何者 == "索子":
-            return 18 + tile.その上の数字 - 1
-        elif tile.何者 == "東風":
-            return 27
-        elif tile.何者 == "南風":
-            return 28
-        elif tile.何者 == "西風":
-            return 29
-        elif tile.何者 == "北風":
-            return 30
-        elif tile.何者 == "白ちゃん":
-            return 31
-        elif tile.何者 == "發ちゃん":
-            return 32
-        elif tile.何者 == "中ちゃん":
-            return 33
-    
+        hand_local_group_ids = []
+        canonical_to_group_map = {}
+        next_available_group_id = 0
+        
+        for tile in actual_hand_tiles:
+            tile_cano_id = self._get_canonical_id(tile)
+            if tile_cano_id not in canonical_to_group_map:
+                canonical_to_group_map[tile_cano_id] = next_available_group_id
+                hand_local_group_ids.append(next_available_group_id)
+                next_available_group_id += 1
+            else:
+                hand_local_group_ids.append(canonical_to_group_map[tile_cano_id])
+        
+        max_local_id_in_hand = next_available_group_id -1 if next_available_group_id > 0 else -1
 
-    def _index_to_tile_type(self, idx):
-        """Convert index to tile type (for action selection)"""
-        if 0 <= idx < 9:
-            return ("萬子", idx + 1)
-        elif 9 <= idx < 18:
-            return ("筒子", idx - 9 + 1)
-        elif 18 <= idx < 27:
-            return ("索子", idx - 18 + 1)
-        elif idx == 27:
-            return ("東風", 0)
-        elif idx == 28:
-            return ("南風", 0)
-        elif idx == 29:
-            return ("西風", 0)
-        elif idx == 30:
-            return ("北風", 0)
-        elif idx == 31:
-            return ("白ちゃん", 0)
-        elif idx == 32:
-            return ("發ちゃん", 0)
-        elif idx == 33:
-            return ("中ちゃん", 0)
+        hand_features_list = []
+        for i in range(self.AGENT_HAND_SIZE):
+            if i < len(actual_hand_tiles): # Use actual_hand_tiles here
+                tile = actual_hand_tiles[i]
+                local_id = hand_local_group_ids[i]
+                base_props = self._get_tile_base_properties(tile)
+                hand_features_list.extend([local_id, *base_props])
+            else: 
+                padding_local_id = -1 
+                base_props_padding = self._get_tile_base_properties(None)
+                hand_features_list.extend([padding_local_id, *base_props_padding])
+        
+        hand_tiles_state = np.array(hand_features_list, dtype=np.float32)
 
+        # --- Last Tile Encoding ---
+        last_tile_local_id = -1 # Default for padding 
+        base_props_last_tile = self._get_tile_base_properties(last_tile, is_explicitly_exposed=False)
 
-    def get_valid_actions(self, extra_tile_idx: int, tenpai: bool=False) -> list[int]:
-        if self.current_actor == 1: # Opponent
-            # 行動：牌を捨てる
-            # 聴牌の時、もらった牌を捨てるだけにしとこう
-            if tenpai and extra_tile_idx >= 0:
-                return [extra_tile_idx]
-            hand_tiles = [self._tile_to_index(t) for t in self.opponent_hand if not t.副露]
-            if extra_tile_idx >= 0:
-                hand_tiles.append(extra_tile_idx)
-            hand_tiles = sorted(set(hand_tiles))
-            return hand_tiles
+        if last_tile is not None:
+            last_tile_cano_id = self._get_canonical_id(last_tile)
+            if last_tile_cano_id in canonical_to_group_map:
+                last_tile_local_id = canonical_to_group_map[last_tile_cano_id]
+            else:
+                # If hand was empty, max_local_id_in_hand is -1, so new ID is 0.
+                # Otherwise, it's the next ID after existing hand groups.
+                last_tile_local_id = max_local_id_in_hand + 1
+        
+        last_tile_state_list = [last_tile_local_id, *base_props_last_tile]
+        last_tile_state = np.array(last_tile_state_list, dtype=np.float32)
+        
+        seat_state = np.zeros(4, dtype=np.float32)
+        seat_state[self.opponent_seat] = 1.0
+        
+        # --- Current Actor Encoding ---
+        # NOTE: Reversed from AI_v4
+        actor_state = np.zeros(4, dtype=np.float32)
+        if self.current_actor == 1:
+            actor_state[0] = 1.0
         else:
-            # 行動：何もしない・ポン・チー
-            # 34, 35, 36
-            return [34, 35, 36]
+            actor_state[1] = 1.0
+
+        return np.concatenate([
+            hand_tiles_state,  # (AGENT_HAND_SIZE) * 6 features
+            last_tile_state,   # 1 * 6 features
+            seat_state,        # 4 features
+            actor_state        # 4 features
+        ])
+
+
+    def get_valid_actions(self, last_tile: 麻雀牌 = None, tenpai: bool = False) -> list[int]:
+        """
+        Generates a list of valid action IDs.
+        For agent's turn (discard): action IDs are local group IDs of discardable tiles.
+        For opponent's turn (call/pass): action IDs are special constants (14, 15, 16): (pass, pon, chii)
+        """
+        self.action_lgid_to_canonical_map.clear() # Clear map from previous turn
+
+        if self.current_actor == 1: # Agent's turn: Discard a tile
+            discardable_tiles_in_hand = [t for t in self.opponent_hand if not t.副露]
+            effective_hand_for_action = [t for t in self.opponent_hand] # instead of discardable_tiles_in_hand
+            if last_tile:
+                effective_hand_for_action.append(last_tile)
+            if not effective_hand_for_action: # Should not happen in a normal game state
+                raise Exception
+            effective_hand_for_action.sort(key=lambda x: (x.sort_order, x.その上の数字)) # Relies on 麻雀牌.__lt__
+            # Generate local group IDs specifically for this action context
+            action_specific_lgids = []
+            # Temp map for THIS call, to build action_lgid_to_canonical_map and get unique lgids
+            temp_cano_to_action_lgid = {} 
+            next_action_lgid = 0
+
+            for tile in effective_hand_for_action:
+                cano_id = self._get_canonical_id(tile)
+                if cano_id not in temp_cano_to_action_lgid:
+                    assigned_lgid = next_action_lgid
+                    temp_cano_to_action_lgid[cano_id] = assigned_lgid
+                    # Populate the instance map for use in step()
+                    self.action_lgid_to_canonical_map[assigned_lgid] = cano_id 
+                    next_action_lgid += 1
+                else:
+                    assigned_lgid = temp_cano_to_action_lgid[cano_id]
+                if not tile.副露:
+                    action_specific_lgids.append(assigned_lgid)
+
+            if tenpai and last_tile:
+                last_tile_cano_id = self._get_canonical_id(last_tile)
+                # Find the action LGID assigned to this last_tile's type
+                lgid_for_last_tile_action = temp_cano_to_action_lgid.get(last_tile_cano_id)
+                
+                if lgid_for_last_tile_action is not None:
+                    # Ensure the map for step() is correctly populated for this single action
+                    # (already done above if last_tile was processed, but good to be explicit if we were to optimize)
+                    # self.action_lgid_to_canonical_map = {lgid_for_last_tile_action: last_tile_cano_id}
+                    return [lgid_for_last_tile_action]
+                else:
+                    raise Exception
+            # Return unique, sorted local group IDs that can be discarded
+            unique_valid_action_lgids = sorted(list(set(action_specific_lgids)))
+            return unique_valid_action_lgids
+        
+        else:
+            return [self.ACTION_PASS, self.ACTION_PON, self.ACTION_CHI] # 14, 15, 16
+
+
+    def map_action_lgid_to_canonical_id(self, action_lgid: int) -> int | None:
+        """
+        Maps a local group ID (used as an action) to the canonical tile ID it represents.
+        This map is populated by get_valid_actions.
+        """
+        return self.action_lgid_to_canonical_map.get(action_lgid)
+
+
 
     # ==========================
     # End of Methods for RL agent
@@ -226,11 +343,11 @@ if __name__ == "__main__":
     light_pink = pygame.Color("#fae5eb")
 
     display_surface = pygame.display.set_mode((1600, 900), flags=pygame.SCALED | pygame.RESIZABLE)
-    ui_manager_lower = pygame_gui.UIManager((1600, 900), "theme_light_purple.json", starting_language='ja')
-    ui_manager = pygame_gui.UIManager((1600, 900), "theme_light_purple.json", starting_language='ja')
-    ui_manager_overlay = pygame_gui.UIManager((1600, 900), "theme_light_purple.json", starting_language='ja')
-    # debug_ui_manager = pygame_gui.UIManager((1600, 900), "theme_light_yellow.json", starting_language='ja')
-    # ui_manager.get_theme().load_theme("theme_light_purple.json")
+    ui_manager_lower = pygame_gui.UIManager((1600, 900), "./asset/ui_theme/theme_light_purple.json", starting_language='ja')
+    ui_manager = pygame_gui.UIManager((1600, 900), "./asset/ui_theme/theme_light_purple.json", starting_language='ja')
+    ui_manager_overlay = pygame_gui.UIManager((1600, 900), "./asset/ui_theme/theme_light_purple.json", starting_language='ja')
+    # debug_ui_manager = pygame_gui.UIManager((1600, 900), "./asset/ui_theme/theme_light_yellow.json", starting_language='ja')
+    # ui_manager.get_theme().load_theme("./asset/ui_theme/theme_light_purple.json")
     # ui_manager.rebuild_all_from_changed_theme_data()
 
     pygame.display.set_caption("Roka Mahjong")
@@ -242,10 +359,10 @@ if __name__ == "__main__":
         print(f"Error loading icon: {e}")
 
     try:
-        dqn_agent = DQNAgent(412, 34 + 3, device="cuda")
+        dqn_agent = DQNAgent(92, 17, device="cuda")
     except Exception:
         print("Cuda Device not found, using cpu version.")
-        dqn_agent = DQNAgent(412, 34 + 3, device="cpu")
+        dqn_agent = DQNAgent(92, 17, device="cpu")
 
     dqn_agent.epsilon = 0
 
@@ -511,12 +628,12 @@ if __name__ == "__main__":
             draw_ui_player_labels()
             return None
 
-
+        hiruchaaru_is_tenpai, list_of_hr_tenpai = 聴牌ですか(env.opponent_hand, env.opponent_seat)
         # Check if opponent can pon or chii
         hiruchaaru_to_pon: bool = False
         hiruchaaru_to_chii: bool = False
         # pon
-        if len([t for t in env.opponent_hand if not t.副露]) > 1 and len(env.discard_pile_opponent) < 54:
+        if len([t for t in env.opponent_hand if not t.副露]) > 1 and len(env.discard_pile_opponent) < 54 and not hiruchaaru_is_tenpai:
             same_tile_count = 0
             same_tiles = []
             for i, tile in enumerate(env.opponent_hand):
@@ -525,12 +642,12 @@ if __name__ == "__main__":
                     same_tiles.append(i)
             if same_tile_count >= 2:
                 # can pon
-                valid_actions: list = env.get_valid_actions(-1)
-                valid_actions.remove(36)
-                assert 34 in valid_actions and 35 in valid_actions, "34 do nothing 35 pon 36 chii"
+                valid_actions: list = env.get_valid_actions(last_tile_discarded_by_player)
+                valid_actions.remove(16)
+                assert 14 in valid_actions and 15 in valid_actions
                 action: int
-                action, full_dict = dqn_agent.act(env._get_state(ndtidx=env._tile_to_index(last_tile_discarded_by_player)), valid_actions)
-                if action == 35:
+                action, full_dict = dqn_agent.act(env._get_state_unified(last_tile_discarded_by_player), valid_actions)
+                if action == 15:
                     game_state_text_box.append_html_text(f"{env.opponent_name}: ポン！\n")
                     # Mark the 2 tiles in agent's hand as 副露
                     for i in sorted(same_tiles[:2], reverse=True):
@@ -546,16 +663,15 @@ if __name__ == "__main__":
                     hiruchaaru_to_pon = True
 
 
-                else: # action 34
+                else: # action 14
                     pass
         # chii
-        if len([t for t in env.opponent_hand if not t.副露]) > 2 and len(env.discard_pile_opponent) < 54 and last_tile_discarded_by_player:
+        if len([t for t in env.opponent_hand if not t.副露]) > 2 and len(env.discard_pile_opponent) < 54 and last_tile_discarded_by_player and not hiruchaaru_is_tenpai:
             can_chii = False
             chii_tiles = []
             
             if "中張牌" in last_tile_discarded_by_player.固有状態:
                 dt_num = last_tile_discarded_by_player.その上の数字
-                discarded_tile_idx = env._tile_to_index(last_tile_discarded_by_player)
                 possible_sequence = [(last_tile_discarded_by_player.何者, dt_num-1), (last_tile_discarded_by_player.何者, dt_num+1)] # [n-1,n,n+1]
                 
                 # print(f"Checking sequence: {possible_sequence}")
@@ -577,12 +693,12 @@ if __name__ == "__main__":
                             
 
                 if can_chii:
-                    valid_actions: list = env.get_valid_actions(-1)
-                    valid_actions.remove(35)
-                    assert 34 in valid_actions and 36 in valid_actions, "34 do nothing 35 pon 36 chii"
+                    valid_actions: list = env.get_valid_actions(last_tile_discarded_by_player)
+                    valid_actions.remove(15)
+                    assert 14 in valid_actions and 16 in valid_actions, "14 do nothing 15 pon 16 chii"
                     action: int
-                    action, full_dict = dqn_agent.act(env._get_state(ndtidx=discarded_tile_idx), valid_actions)
-                    if action == 36:
+                    action, full_dict = dqn_agent.act(env._get_state_unified(last_tile_discarded_by_player), valid_actions)
+                    if action == 16:
                         game_state_text_box.append_html_text(f"{env.opponent_name}: チー！\n")
                         for t in env.opponent_hand:
                             if (t.何者, t.その上の数字) == (chii_tiles[0].何者, chii_tiles[0].その上の数字) and not t.副露:
@@ -605,14 +721,13 @@ if __name__ == "__main__":
         env.current_actor = 1
         env.turn += 1
         newly_drawn_tile_index: int = -1
-        tenpai_before_draw: bool = False
+        # tenpai_before_draw: bool = False
 
         if not hiruchaaru_to_pon and not hiruchaaru_to_chii:
             if len(env.discard_pile_opponent) < 54:
                 # Opponent draw a tile
-                tenpai_before_draw, list_of_tanpai = 聴牌ですか(env.opponent_hand, env.opponent_seat)
+                # tenpai_before_draw, list_of_tanpai = 聴牌ですか(env.opponent_hand, env.opponent_seat)
                 new_tile = env.opponent_draw_tile()
-                newly_drawn_tile_index = env._tile_to_index(new_tile)
                 
 
                 # Opponent tsumo
@@ -653,23 +768,27 @@ if __name__ == "__main__":
                 return None
         else:
             # Hiruchaaru poned or chiied, so they do not draw, but need to discard.
-            pass
+            new_tile = None
 
-        valid_actions: list = env.get_valid_actions(extra_tile_idx=newly_drawn_tile_index,
-                                                     tenpai=tenpai_before_draw)
+        valid_actions: list = env.get_valid_actions(new_tile, tenpai=hiruchaaru_is_tenpai)
         assert len(valid_actions) > 0
         action: int
-        action, full_dict = dqn_agent.act(env._get_state(), valid_actions)
+        action, full_dict = dqn_agent.act(env._get_state_unified(new_tile), valid_actions)
         # print(f"Opponent action: {action}")
         # print(env._index_to_tile_type(action))discarded_tile
         # print(tile_type) # ('筒子', 5)
+        assert 0 <= action <= 13
+        tile_type = env.map_action_lgid_to_canonical_id(action)
         discarded_tile = None
         for t in [t for t in env.opponent_hand if not t.副露]:
-            if (t.何者, t.その上の数字) == env._index_to_tile_type(action):
+            if env._get_canonical_id(t) == tile_type:
                 discarded_tile = t
                 break
         if discarded_tile is None:
-            raise ValueError(f"Invalid action: {env._index_to_tile_type(action)} not in hand.")
+            print(nicely_print_tiles(env.opponent_hand))
+            print(action)
+            print(tile_type)
+            raise ValueError(f"Invalid action: {tile_type} not in hand.")
         # Remove the tile from the hand and add it to the discard pile
         assert discarded_tile.副露 == False, f"Exposed tile can not be discarded! {discarded_tile.何者}{discarded_tile.その上の数字}"
 
@@ -887,11 +1006,11 @@ if __name__ == "__main__":
         button_pass.hide()
 
 
-    # draw_button = pygame_gui.elements.UIButton(relative_rect=pygame.Rect((1100, 100), (150, 35)),
+    # draw_button = pygame_gui.elements.UIButton(relative_rect=pygame.Rect((1100, 100), (150, 15)),
     #                                     text='Draw Tile',
     #                                     manager=ui_manager,
     #                                     tool_tip_text = "Some tool tip text.")
-    # discard_button = pygame_gui.elements.UIButton(relative_rect=pygame.Rect((1100, 140), (150, 35)),
+    # discard_button = pygame_gui.elements.UIButton(relative_rect=pygame.Rect((1100, 140), (150, 15)),
     #                                     text='Discard Tile',
     #                                     manager=ui_manager,
     #                                     tool_tip_text = "Some tool tip text.")
