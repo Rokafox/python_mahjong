@@ -323,6 +323,68 @@ def 面子スコア(tiles: list[麻雀牌]) -> int:
     return [0, 1, 2, 4, 8][melds]
 
 
+def 刻子スコア(tiles: list[麻雀牌]) -> int:
+    """
+    13 枚の手牌から刻子（同じ牌3枚）の最大数を求めて
+    0刻子→0, 1刻子→1, 2刻子→2, 3刻子→4, 4刻子→8を返す。雀頭は数えない。
+    """
+    tiles.sort(key=lambda x: (x.sort_order, x.その上の数字))
+    
+    # 牌の種類ごとのカウントを作成
+    counter = Counter((t.何者, t.その上の数字) for t in tiles)
+    
+    # 刻子の数をカウント
+    刻子数 = sum(1 for count in counter.values() if count >= 3)
+    
+    # スコア変換テーブル
+    score_table = [0, 1, 2, 4, 8]
+    return score_table[min(刻子数, 4)]
+
+
+def 順子スコア(tiles: list[麻雀牌]) -> int:
+    """
+    13 枚の手牌から順子（連続する3枚の数牌）の最大数を求めて
+    0順子→0, 1順子→1, 2順子→2, 3順子→4, 4順子→8を返す。雀頭は数えない。
+    """
+    tiles.sort(key=lambda x: (x.sort_order, x.その上の数字))
+    
+    counter = Counter((t.何者, t.その上の数字) for t in tiles)
+    memo: dict[tuple[tuple[tuple[str, int], int], ...], int] = {}
+    数牌 = ("萬子", "筒子", "索子")
+    
+    def dfs(c: Counter) -> int:
+        """残りカウンタ c から作れる最大順子数を返す（メモ化付き）"""
+        key = tuple(sorted((k, v) for k, v in c.items() if v))
+        if not key:             # 牌が残っていない
+            return 0
+        if key in memo:         # メモ化
+            return memo[key]
+        
+        best = 0
+        # すべての牌を起点に「順子」のみを試す
+        for (suit, num), cnt in list(c.items()):
+            if cnt == 0 or suit not in 数牌 or num > 7:
+                continue
+                
+            # 順子のみを考慮
+            k1, k2 = (suit, num + 1), (suit, num + 2)
+            if c[k1] and c[k2]:
+                c[(suit, num)] -= 1
+                c[k1]          -= 1
+                c[k2]          -= 1
+                best = max(best, 1 + dfs(c))
+                c[(suit, num)] += 1
+                c[k1]          += 1
+                c[k2]          += 1
+                
+        memo[key] = best
+        return best
+    
+    順子数 = dfs(counter)                # 0〜4
+    return [0, 1, 2, 4, 8][順子数]
+
+
+
 def 対子スコア(tiles: list[麻雀牌]) -> int:
     """
     13 枚の手牌から完成対子の最大数を求めて
@@ -485,11 +547,9 @@ def 上がり形(tiles, process_marked_as_removed=False) -> bool:
 #     麻雀牌("中ちゃん", 0, False, 副露=True),
 #     麻雀牌("中ちゃん", 0, False, 副露=True),
 #     麻雀牌("中ちゃん", 0, False, 副露=True),
-#     麻雀牌("中ちゃん", 0, False, 副露=True),  
 #     麻雀牌("白ちゃん", 0, False, 副露=True),
 #     麻雀牌("白ちゃん", 0, False, 副露=True),
-#     麻雀牌("白ちゃん", 0, False, 副露=True),
-#     麻雀牌("白ちゃん", 0, False, 副露=True),           
+#     麻雀牌("白ちゃん", 0, False, 副露=True),        
 # ]
 # print(上がり形(手牌)) # Must be True
 

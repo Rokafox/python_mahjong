@@ -10,7 +10,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
-from ろか麻雀 import calculate_weighted_preference_score, nicely_print_tiles, 対子スコア, 搭子スコア, 聴牌ですか, 麻雀牌, 山を作成する, 面子スコア, 点数計算
+from ろか麻雀 import calculate_weighted_preference_score, nicely_print_tiles, 刻子スコア, 対子スコア, 搭子スコア, 聴牌ですか, 順子スコア, 麻雀牌, 山を作成する, 面子スコア, 点数計算
 
 
 class MahjongEnvironment:
@@ -23,10 +23,16 @@ class MahjongEnvironment:
         "東風": 1, "南風": 2, "西風": 3, "北風": 4,
         "白ちゃん": 5, "發ちゃん": 6, "中ちゃん": 7
     }
+    _MAX_DISCARD_GROUPS = 14
+    ACTION_PASS = _MAX_DISCARD_GROUPS + 0
+    ACTION_PON = _MAX_DISCARD_GROUPS + 1
+    ACTION_CHI = _MAX_DISCARD_GROUPS + 2
+    AGENT_HAND_SIZE = 13
 
     def __init__(self):
         self.agent_tile_count = 13
         self.sandbag_tile_count = 13
+        self.action_lgid_to_canonical_map: dict[int, int] = {}
         self.reset()
         # test environment does not give penalty nor hand reward
         self.is_test_environment = False
@@ -77,7 +83,8 @@ class MahjongEnvironment:
         self.hand_when_complete = []
         self.agent_after_pon = False
 
-        return self._get_state()
+        self.action_lgid_to_canonical_map.clear()
+        return self._get_state_unified(last_tile=None)
 
 
     def _get_canonical_id(self, tile: 麻雀牌) -> int:
@@ -183,27 +190,89 @@ class MahjongEnvironment:
         seat_state = np.zeros(4, dtype=np.float32)
         seat_state[self.seat] = 1.0
         
-        # Expected total: (13 * 6) + 6 + 4 = 78 + 6 + 4 = 88
+        # --- Current Actor Encoding (One-Hot) ---
+        actor_state = np.zeros(4, dtype=np.float32)
+        # Ensure current_actor index is valid (0-3)
+        if 0 <= self.current_actor < 4:
+            actor_state[self.current_actor] = 1.0
+
+        # Total state size:
+        # (AGENT_HAND_SIZE) * (1 local ID + 5 base props)  -> 13 * 6 = 78 (for hand slots)
+        # + 1 * (1 local ID + 5 base props)                   -> 1 * 6 = 6  (for last tile slot)
+        # + 4                                                 -> 4          (for seat)
+        # + 4                                                 -> 4          (for actor)
+        # Total: 78 + 6 + 4 + 4 = 92
+
         return np.concatenate([
-            hand_tiles_state,
-            last_tile_state,
-            seat_state
+            hand_tiles_state,  # (AGENT_HAND_SIZE) * 6 features
+            last_tile_state,   # 1 * 6 features
+            seat_state,        # 4 features
+            actor_state        # 4 features
         ])
 
-    def get_valid_actions(self, extra_tile_idx: int, tenpai: bool=False) -> list[int]:
-        if self.current_actor == 0:
-            # 行動：牌を捨てる
-            # 聴牌の時、もらった牌だけ捨てるにしとこう
-            if tenpai and extra_tile_idx >= 0:
-                return [extra_tile_idx]
-            hand_tiles = [self._get_canonical_id(t) for t in self.手牌 if not t.副露]
-            if extra_tile_idx >= 0:
-                hand_tiles.append(extra_tile_idx)
-            hand_tiles = sorted(set(hand_tiles))
-            return hand_tiles
+
+    def get_valid_actions(self, last_tile: 麻雀牌 = None, tenpai: bool = False) -> list[int]:
+        """
+        Generates a list of valid action IDs.
+        For agent's turn (discard): action IDs are local group IDs of discardable tiles.
+        For opponent's turn (call/pass): action IDs are special constants (14, 15, 16): (pass, pon, chii)
+        """
+        self.action_lgid_to_canonical_map.clear() # Clear map from previous turn
+
+        if self.current_actor == 0: # Agent's turn: Discard a tile
+            discardable_tiles_in_hand = [t for t in self.手牌 if not t.副露]
+            effective_hand_for_action = [t for t in self.手牌] # instead of discardable_tiles_in_hand
+            if last_tile:
+                effective_hand_for_action.append(last_tile)
+            if not effective_hand_for_action: # Should not happen in a normal game state
+                raise Exception
+            effective_hand_for_action.sort(key=lambda x: (x.sort_order, x.その上の数字)) # Relies on 麻雀牌.__lt__
+            # Generate local group IDs specifically for this action context
+            action_specific_lgids = []
+            # Temp map for THIS call, to build action_lgid_to_canonical_map and get unique lgids
+            temp_cano_to_action_lgid = {} 
+            next_action_lgid = 0
+
+            for tile in effective_hand_for_action:
+                cano_id = self._get_canonical_id(tile)
+                if cano_id not in temp_cano_to_action_lgid:
+                    assigned_lgid = next_action_lgid
+                    temp_cano_to_action_lgid[cano_id] = assigned_lgid
+                    # Populate the instance map for use in step()
+                    self.action_lgid_to_canonical_map[assigned_lgid] = cano_id 
+                    next_action_lgid += 1
+                else:
+                    assigned_lgid = temp_cano_to_action_lgid[cano_id]
+                if not tile.副露:
+                    action_specific_lgids.append(assigned_lgid)
+
+            if tenpai and last_tile:
+                last_tile_cano_id = self._get_canonical_id(last_tile)
+                # Find the action LGID assigned to this last_tile's type
+                lgid_for_last_tile_action = temp_cano_to_action_lgid.get(last_tile_cano_id)
+                
+                if lgid_for_last_tile_action is not None:
+                    # Ensure the map for step() is correctly populated for this single action
+                    # (already done above if last_tile was processed, but good to be explicit if we were to optimize)
+                    # self.action_lgid_to_canonical_map = {lgid_for_last_tile_action: last_tile_cano_id}
+                    return [lgid_for_last_tile_action]
+                else:
+                    raise Exception
+            # Return unique, sorted local group IDs that can be discarded
+            unique_valid_action_lgids = sorted(list(set(action_specific_lgids)))
+            return unique_valid_action_lgids
+        
         else:
-            # 行動：何もしない・ポン・チー
-            return [34, 35, 36]
+            return [self.ACTION_PASS, self.ACTION_PON, self.ACTION_CHI] # 14, 15, 16
+
+
+    def map_action_lgid_to_canonical_id(self, action_lgid: int) -> int | None:
+        """
+        Maps a local group ID (used as an action) to the canonical tile ID it represents.
+        This map is populated by get_valid_actions.
+        """
+        return self.action_lgid_to_canonical_map.get(action_lgid)
+
 
 
     def _agent_extra_reward(self, 手牌: list[麻雀牌]) -> int:
@@ -220,19 +289,30 @@ class MahjongEnvironment:
         #     self.total_tennpai += len(何の牌)
         #     reward_extra += len(何の牌) * 50
         
-        mz_score = int(面子スコア(self.手牌) * 8)
-        self.mz_score += mz_score
-        reward_extra += mz_score
+        # mz_score = int(面子スコア(self.手牌) * 8)
+        # self.mz_score += mz_score
+        # reward_extra += mz_score
 
-        tuiz_score = int(対子スコア(self.手牌) * 4)
+        tuiz_score = int(刻子スコア(self.手牌) * 8)
         self.tuiz_score += tuiz_score
         reward_extra += tuiz_score
 
-        tatsu_score = int(搭子スコア(self.手牌) * 4)
-        self.tatsu_score += tatsu_score
-        reward_extra += tatsu_score
+        # tatsu_score = int(順子スコア(self.手牌) * 8)
+        # self.tatsu_score += tatsu_score
+        # reward_extra += tatsu_score
 
         ht_counter = Counter((t.何者, t.その上の数字) for t in self.手牌)
+
+        # tuitui reward system
+        for t in self.手牌:
+            if t.exposed_state == 'pon':
+                reward_extra += 6
+                self.penalty_A -= 6
+            elif t.exposed_state == 'chii':
+                reward_extra -= 6
+                self.penalty_A += 6
+        reward_extra += (10 - len(ht_counter)) * 19
+        self.penalty_A -= (10 - len(ht_counter)) * 19
 
         # Penalty for having 4,5,6.
         # for t in self.手牌:
@@ -269,11 +349,10 @@ class MahjongEnvironment:
         # self.penalty_A += punishment_of_the_exposed
 
         # Custom Penalty
-        for t in self.手牌:
-            if "字牌" in t.固有状態:
-                reward_extra += 15
-                self.penalty_A -= 15
-
+        # for t in self.手牌:
+        #     if "字牌" in t.固有状態:
+        #         reward_extra += 15
+        #         self.penalty_A -= 15
             # if t.何者 in {"萬子"} and t.その上の数字 in {1,2,3}:
             #     reward_extra += 3
             #     self.penalty_A -= 3
@@ -283,55 +362,9 @@ class MahjongEnvironment:
             # elif t.何者 in {"筒子"} and t.その上の数字 in {7,8,9}:
             #     reward_extra += 3
             #     self.penalty_A -= 3
-            else:
-                reward_extra -= 15
-                self.penalty_A += 15
-
-
-        # suits = ("萬子", "筒子", "索子")
-        # # Define the three sequence groups
-        # sequences = [(1, 2, 3), (4, 5, 6), (7, 8, 9)]
-        
-        # # For rule 3: Check if we can assign one sequence to each 萬子
-        # # Then remove that sequence, check if we can assign 1 to 筒子,
-        # # then, check if we can assign the last one to 索子.
-        # # We also need to consider there could be mulitiple seq to assign to each suit, try all of them.
-        # # Check if each suit can claim at least one complete sequence
-        # suit_sequences = {}
-        # for suit in suits:
-        #     suit_sequences[suit] = []
-        #     for seq in sequences:
-        #         # Check if this suit has all numbers in this sequence
-        #         if all(ht_counter.get((suit, n), 0) >= 1 for n in seq):
-        #             suit_sequences[suit].append(seq)
-        #             reward_extra += 6
-        #             self.penalty_A -= 6
-        
-        # # For each possible ordering of the sequences
-        # for seq_ordering in permutations(sequences):
-        #     # Try to assign sequences to suits in this order
-        #     assignment_works = True
-        #     used_suits = set()
-        #     suit_to_seq = {}  # Map suits to their assigned sequences
-            
-        #     for seq in seq_ordering:
-        #         # Find a suit that can claim this sequence and hasn't been used
-        #         assigned = False
-        #         for suit in suits:
-        #             if suit not in used_suits and seq in suit_sequences[suit]:
-        #                 used_suits.add(suit)
-        #                 suit_to_seq[suit] = seq  # Store the assignment
-        #                 assigned = True
-        #                 break
-                
-        #         if not assigned:
-        #             assignment_works = False
-        #             break
-            
-        #     # If we found a valid assignment, return True
-        #     if assignment_works and len(used_suits) == len(suits):
-        #         reward_extra += 80
-        #         self.penalty_A -= 80
+            # else:
+            #     reward_extra -= 15
+            #     self.penalty_A += 15
 
         # Custom 7 tui penalty
         # counter = Counter((t.何者, t.その上の数字) for t in self.手牌)
@@ -353,8 +386,9 @@ class MahjongEnvironment:
         if not after_pon:
             tenpai_before_draw, list_of_tanpai = 聴牌ですか(self.手牌, self.seat)
             newly_drawn_tile = self.山.pop(0)
-            newly_drawn_tile_index = self._tile_to_index(newly_drawn_tile)
             self.手牌.append(newly_drawn_tile)
+        else:
+            newly_drawn_tile = None
 
         # ツモ
         a, b, c = 点数計算(self.手牌, self.seat) # This func returns 点数int, 完成した役list, 和了形bool
@@ -365,7 +399,7 @@ class MahjongEnvironment:
             done = True
             self.score += reward 
             self.hand_when_complete = nicely_print_tiles(self.手牌)
-            return self._get_state(), reward, done, {"score": self.score, "turn": self.turn,
+            return self._get_state_unified(newly_drawn_tile), reward, done, {"score": self.score, "turn": self.turn,
                                                     "penalty_A": self.penalty_A,
                                                     "tenpai": self.total_tennpai,
                                                     "mz_score": self.mz_score,
@@ -375,23 +409,29 @@ class MahjongEnvironment:
                                                     "hand_when_complete": self.hand_when_complete}, -1
             
         # 牌を捨てる
-        valid_actions: list = self.get_valid_actions(extra_tile_idx=newly_drawn_tile_index,
+        valid_actions: list = self.get_valid_actions(last_tile=newly_drawn_tile,
                                                      tenpai=tenpai_before_draw)
         assert len(valid_actions) > 0
         action: int
-        action, full_dict = actor.act(self._get_state(), valid_actions)
+        action, full_dict = actor.act(self._get_state_unified(newly_drawn_tile), valid_actions)
+        assert 0 <= action <= 13
         if not self.is_test_environment:
             # reward -= 2  # base penalty
-            reward -= int(self.turn)
-        tile_type = self._index_to_tile_type(action)
+            reward -= int(self.turn * 0.5)
+        tile_type = self.map_action_lgid_to_canonical_id(action)
         # print(tile_type) # ('筒子', 5)
         target_tile = None
         for t in [t for t in self.手牌 if not t.副露]:
-            if (t.何者, t.その上の数字) == tile_type:
+            if self._get_canonical_id(t) == tile_type:
                 target_tile = t
                 break
         if target_tile is None:
-            raise ValueError(f"Invalid action: {self._index_to_tile_type(action)} not in hand.")
+            print(nicely_print_tiles(self.手牌))
+            print(action)
+            print(tile_type)
+            raise ValueError(f"Invalid action: {tile_type} not in hand or cannot be discarded.")
+
+
         # Remove the tile from the hand and add it to the discard pile
         assert target_tile.副露 == False, f"Exposed tile can not be discarded! {target_tile.何者}{target_tile.その上の数字}"
         self.手牌.remove(target_tile)
@@ -409,7 +449,7 @@ class MahjongEnvironment:
         # if done, add hand
         if done:
             self.hand_when_complete = nicely_print_tiles(self.手牌)
-        return self._get_state(), reward, done, {"score": self.score, "turn": self.turn,
+        return self._get_state_unified(newly_drawn_tile), reward, done, {"score": self.score, "turn": self.turn,
                                                 "penalty_A": self.penalty_A,
                                                 "tenpai": self.total_tennpai,
                                                 "mz_score": self.mz_score,
@@ -467,7 +507,7 @@ class MahjongEnvironment:
             done = True
             self.score += reward
             self.hand_when_complete = nicely_print_tiles(temp_hand)
-            return self._get_state(), reward, done, {"score": self.score, "turn": self.turn,
+            return self._get_state_unified(discarded_tile), reward, done, {"score": self.score, "turn": self.turn,
                                                 "penalty_A": self.penalty_A,
                                                 "tenpai": self.total_tennpai,
                                                 "mz_score": self.mz_score,
@@ -478,7 +518,7 @@ class MahjongEnvironment:
     
         if done: # 注意：これで最後はポンできない。これは一般的なルールと違う。
             self.hand_when_complete = nicely_print_tiles(self.手牌)
-            return self._get_state(), 0, done, {"score": self.score, "turn": self.turn,
+            return self._get_state_unified(discarded_tile), 0, done, {"score": self.score, "turn": self.turn,
                                                 "penalty_A": self.penalty_A,
                                                 "tenpai": self.total_tennpai,
                                                 "mz_score": self.mz_score,
@@ -495,7 +535,6 @@ class MahjongEnvironment:
             # Count how many of the discarded tile type the agent has
             same_tile_count = 0
             same_tiles = []
-            discarded_tile_idx = self._tile_to_index(discarded_tile)
             
             for i, tile in enumerate(self.手牌):
                 if (tile.何者, tile.その上の数字) == (discarded_tile.何者, discarded_tile.その上の数字) and not tile.副露:
@@ -504,12 +543,12 @@ class MahjongEnvironment:
             
             # If agent has at least 2 of the same tile, they can pon
             if same_tile_count >= 2:
-                valid_actions: list = self.get_valid_actions(-1)
-                valid_actions.remove(36)
-                assert 34 in valid_actions and 35 in valid_actions, "34 do nothing 35 pon 36 chii"
+                valid_actions: list = self.get_valid_actions(discarded_tile)
+                valid_actions.remove(16)
+                assert 14 in valid_actions and 15 in valid_actions
                 action: int
-                action, full_dict = actor.act(self._get_state(ndtidx=discarded_tile_idx), valid_actions)
-                if action == 35:
+                action, full_dict = actor.act(self._get_state_unified(discarded_tile), valid_actions)
+                if action == 15:
                     # print(f"ポン！{discarded_tile.何者} {discarded_tile.その上の数字}")
                     agent_did_nothing = False
                     # Mark the 2 tiles in agent's hand as 副露
@@ -531,15 +570,15 @@ class MahjongEnvironment:
                         reward += self._agent_extra_reward(self.手牌)
                     self.score += reward
 
-                    return self._get_state(), reward, done, {"score": self.score, "turn": self.turn,
+                    return self._get_state_unified(discarded_tile), reward, done, {"score": self.score, "turn": self.turn,
                                                     "penalty_A": self.penalty_A,
                                                     "tenpai": self.total_tennpai,
                                                     "mz_score": self.mz_score,
                                                     "tuiz_score": self.tuiz_score,
                                                     "tatsu_score": self.tatsu_score,
                                                     "completeyaku": self.完成した役,
-                                                    "hand_when_complete": self.hand_when_complete}, 35
-                else: # action 34
+                                                    "hand_when_complete": self.hand_when_complete}, 15
+                else: # action 14
                     agent_did_nothing = True
 
         # Check if agent can Chii
@@ -552,7 +591,6 @@ class MahjongEnvironment:
             
             if "中張牌" in discarded_tile.固有状態:
                 dt_num = discarded_tile.その上の数字
-                discarded_tile_idx = self._tile_to_index(discarded_tile)
                 possible_sequence = [(discarded_tile.何者, dt_num-1), (discarded_tile.何者, dt_num+1)] # [n-1,n,n+1]
                 
                 # print(f"Checking sequence: {possible_sequence}")
@@ -574,12 +612,12 @@ class MahjongEnvironment:
                             
 
                 if can_chii:
-                    valid_actions: list = self.get_valid_actions(-1)
-                    valid_actions.remove(35)
-                    assert 34 in valid_actions and 36 in valid_actions, "34 do nothing 35 pon 36 chii"
+                    valid_actions: list = self.get_valid_actions(discarded_tile)
+                    valid_actions.remove(15)
+                    assert 14 in valid_actions and 16 in valid_actions
                     action: int
-                    action, full_dict = actor.act(self._get_state(ndtidx=discarded_tile_idx), valid_actions)
-                    if action == 36:
+                    action, full_dict = actor.act(self._get_state_unified(discarded_tile), valid_actions)
+                    if action == 16:
                         # print(f"チー！{discarded_tile.何者} {discarded_tile.その上の数字}")
                         agent_did_nothing = False
                         # Mark the 2 tiles in hand that is the chii_tiles to be 副露
@@ -610,15 +648,15 @@ class MahjongEnvironment:
                             reward += self._agent_extra_reward(self.手牌)
                         self.score += reward
 
-                        return self._get_state(), reward, done, {"score": self.score, "turn": self.turn,
+                        return self._get_state_unified(discarded_tile), reward, done, {"score": self.score, "turn": self.turn,
                                                         "penalty_A": self.penalty_A,
                                                         "tenpai": self.total_tennpai,
                                                         "mz_score": self.mz_score,
                                                         "tuiz_score": self.tuiz_score,
                                                         "tatsu_score": self.tatsu_score,
                                                         "completeyaku": self.完成した役,
-                                                        "hand_when_complete": self.hand_when_complete}, 36
-                    else: # action 34
+                                                        "hand_when_complete": self.hand_when_complete}, 16
+                    else: # action 14
                         agent_did_nothing = True
 
 
@@ -630,14 +668,14 @@ class MahjongEnvironment:
         final_action = -1
         if agent_did_nothing:
             # print("The agent did not pon or chii.")
-            final_action = 34
+            final_action = 14
 
         if not self.is_test_environment:
             reward += self._agent_extra_reward(self.手牌)
         self.score += reward
 
         # Return state
-        return self._get_state(), reward, done, {"score": self.score, "turn": self.turn,
+        return self._get_state_unified(discarded_tile), reward, done, {"score": self.score, "turn": self.turn,
                                             "penalty_A": self.penalty_A,
                                             "tenpai": self.total_tennpai,
                                             "mz_score": self.mz_score,
@@ -741,29 +779,8 @@ class EpisodicMemory:
 class NewDQN(nn.Module):
     def __init__(self, state_size, action_size):
         super().__init__()
-        
-        # For hand representation (34 tile types)
-        self.hand_encoder = nn.Sequential(
-            nn.Linear(34*5, 256),  # 34 tile types with counts 0-4
-            nn.ReLU()
-        )
-        
-        # For other game state features
-        self.state_encoder = nn.Sequential(
-            nn.Linear(state_size - 34*5, 128),
-            nn.ReLU()
-        )
-        
-        # Combined processing
-        # self.combined = nn.Sequential(
-        #     nn.Linear(256 + 128, 256),
-        #     nn.ReLU(),
-        #     nn.Linear(256, 128),
-        #     nn.ReLU(),
-        #     nn.Linear(128, action_size)
-        # )
-        self.combined = nn.Sequential(
-            nn.Linear(256 + 128, 512),
+        self.model = nn.Sequential(
+            nn.Linear(state_size, 512),
             nn.ReLU(),
             nn.Linear(512, 256),
             nn.ReLU(),
@@ -771,19 +788,10 @@ class NewDQN(nn.Module):
             nn.ReLU(),
             nn.Linear(128, action_size)
         )
-
+        
     def forward(self, x):
-        # Split input into hand and other features
-        hand = x[:, :170]  # First 170 features (34 tiles × 5 possible counts)
-        other = x[:, 170:]  # Remaining features
-        
-        # Process separately
-        hand_features = self.hand_encoder(hand)
-        state_features = self.state_encoder(other)
-        
-        # Combine and produce action values
-        combined = torch.cat([hand_features, state_features], dim=1)
-        return self.combined(combined)
+        # Process the entire state directly without splitting
+        return self.model(x)
 
 
 class DQNAgent:
@@ -852,13 +860,52 @@ class DQNAgent:
         print("Episode memorized.")
 
     def _valid_mask_from_state(self, state_batch: torch.Tensor) -> torch.Tensor:
+        """
+        Generates a batch of boolean masks indicating valid actions for each state.
+        Valid actions depend on the current actor encoded in the state.
+        """
         B = state_batch.size(0)
-        tile_state = state_batch[:, :170]  # [B, 170]
-        counts = tile_state.view(B, 34, 5).argmax(dim=2)  # [B, 34]
-        mask34 = counts > 0  # [B, 34]
-        mask_other_action = torch.ones((B, 3), dtype=torch.bool, device=state_batch.device)
-        full_mask = torch.cat([mask34, mask_other_action], dim=1)  # [B, 37]
-        return full_mask
+        # Initialize mask to all False
+        mask = torch.zeros((B, self.action_size), dtype=torch.bool, device=state_batch.device)
+
+        # Define indices for action constants
+        action_pass_idx = 14
+        action_pon_idx = 15
+        action_chi_idx = 16
+
+        # State slicing indices based on the inferred structure (13 hand tiles + 1 last tile)
+        # hand_features_end = self.AGENT_HAND_SIZE * 6 # 13 * 6 = 78
+        # last_tile_features_start = hand_features_end # 78
+        # last_tile_features_end = last_tile_features_start + 6 # 84
+        # actor_features_start = last_tile_features_end + 4 # 88 (assuming seat is 4 features after last tile)
+        actor_features_start = 88
+
+        for i in range(B):
+            state = state_batch[i]
+            # Determine current actor from the one-hot encoding
+            # Find the index where the actor one-hot vector is 1.0
+            actor_one_hot = state[actor_features_start : actor_features_start + 4]
+            current_actor = torch.argmax(actor_one_hot).item()
+
+            if current_actor == 0: # Agent's turn: Discard actions
+                hand_local_ids = state[0 : 13 * 6 : 6] # Slice with step 6 to get local_id
+                last_tile_local_id = state[13 * 6] # Should be index 78
+                all_local_ids = torch.cat((hand_local_ids, last_tile_local_id.unsqueeze(0)))
+                valid_local_ids = all_local_ids[all_local_ids != -1].unique().long() # Use .long() for indexing
+                valid_local_ids_within_range = valid_local_ids[valid_local_ids < 14]
+
+                if valid_local_ids_within_range.numel() > 0:
+                    mask[i, valid_local_ids_within_range] = True
+
+            else: # Opponent's turn: Call/Pass actions
+                if action_pass_idx < self.action_size:
+                    mask[i, action_pass_idx] = True
+                if action_pon_idx < self.action_size:
+                    mask[i, action_pon_idx] = True
+                if action_chi_idx < self.action_size:
+                    mask[i, action_chi_idx] = True
+
+        return mask
 
     def replay(self, batch_size: int = 64):
         # Periodically sample from episodic memory and add to main buffer
@@ -961,21 +1008,19 @@ def train_agent(episodes: int = 2999, name: str = "agent",
                 device: str = "cuda", save_every_this_ep: int = 1000,
                 save_after_this_ep: int = 900) -> DQNAgent:
     env = MahjongEnvironment()
-    state_size = env.observation_space.shape[0] if hasattr(env, 'observation_space') and env.observation_space.shape else 412 # Use env spec if available
-    action_size = env.action_space.n if hasattr(env, 'action_space') else 34 + 3 # Use env spec if available
-    agent = DQNAgent(state_size, action_size, device=device)
+    agent = DQNAgent(92, 17, device=device)
     assert save_every_this_ep >= 99, "Reasonable saving interval must be no less than 99."
     log_save_path = f"./log/train_{name}.csv"
 
     if os.path.exists(log_save_path):
-         print(f"Warning: Log file {log_save_path} already exists. Appending to it.")
-         # raise FileExistsError(f"Log file {log_save_path} already exists.")
-         # If appending, make sure header is not written again
-         write_header = False
+        print(f"Training Log file {log_save_path} already exists.")
+        raise FileExistsError(f"Log file {log_save_path} already exists.")
+        # If appending, make sure header is not written again
+        #  write_header = False
     else:
-         write_header = True
-         # Ensure the log directory exists
-         os.makedirs(os.path.dirname(log_save_path), exist_ok=True)
+        write_header = True
+        # Ensure the log directory exists
+        os.makedirs(os.path.dirname(log_save_path), exist_ok=True)
 
 
     # Load agent if name is provided and file exists
@@ -1019,10 +1064,10 @@ def train_agent(episodes: int = 2999, name: str = "agent",
                 agent.decay_epsilon()
 
                 # Add episode to episodic memory if successful
-                if ep_reward > agent.SUCCESS_REWARD_THRESHOLD:
+                # if ep_reward > agent.SUCCESS_REWARD_THRESHOLD:
                 # Or: Add to memory as long as it is a win.
-                # yaku_list: list = info.get('completeyaku', [])
-                # if len(yaku_list) > 0:
+                yaku_list: list = info.get('completeyaku', [])
+                if len(yaku_list) > 0:
                     # Pass the collected transitions and the total reward
                     agent.add_episode_to_memory(agent.current_episode_transitions, ep_reward)
                     # print(f"Episode {ep+1}: Added to episodic memory with reward {ep_reward}") # Debugging
@@ -1081,7 +1126,7 @@ def train_agent(episodes: int = 2999, name: str = "agent",
 def test_agent(episodes: int, model_path: str, device: str = "cpu") -> tuple[float, float]:
     env = MahjongEnvironment()
     env.is_test_environment = True
-    agent = DQNAgent(412, 34 + 3, device=device)
+    agent = DQNAgent(92, 17, device=device)
     agent.epsilon = 0
     log_save_path = f"./log/test_{model_path.split('/')[-1].split('.')[0]}.csv"
     
@@ -1214,202 +1259,16 @@ def test_all_agents(episodes: int, device: str = "cpu") -> None:
         avg_score, agari_rate = test_agent(episodes, f"{agent_dir}{f}", device)
 
 
-def test_mixed_agent(episodes: int, device: str = "cpu") -> None:
-    """
-    Tests multiple DQN agents by loading them and selecting an agent for each
-    episode based on the weighted preference score of the initial hand,
-    calculated using preference data from agent_summary.csv.
-    """
-    agent_dir = "./DQN_agents/"
-    summary_file = "./log/agent_summary.csv"
-    log_save_path = f"./test_mixed.csv"
-
-    # 1. Load agent state dictionaries
-    agent_state_dicts: dict[str, collections.OrderedDict] = {}
-    if not os.path.exists(agent_dir):
-        print(f"Error: Agent directory not found: {agent_dir}")
-        return
-
-    agent_files = [f for f in os.listdir(agent_dir) if f.endswith(".pth")]
-    if not agent_files:
-        print(f"Error: No agent files found in {agent_dir}")
-        return
-
-    print(f"Loading {len(agent_files)} agent models from {agent_dir}...")
-    for filename in agent_files:
-        try:
-            # Load the state dictionary
-            # Ensure map_location is set to the target device
-            state_dict: collections.OrderedDict = torch.load(os.path.join(agent_dir, filename), map_location=device)
-            agent_state_dicts[filename] = state_dict
-            print(f" - Loaded {filename}")
-        except Exception as e:
-            print(f"Error loading agent file {filename}: {e}")
-            # Decide whether to skip this agent or abort
-            continue # Skip malformed files
-
-    if not agent_state_dicts:
-        print("Error: No agent state dictionaries were successfully loaded.")
-        return
-
-    # 2. Read agent preference data from summary file
-    agent_preferred_tiles = {}
-    agent_avg_score = {}
-    if not os.path.exists(summary_file):
-        print(f"Error: Agent summary file not found: {summary_file}")
-        # Cannot proceed without preference data for selection
-        return
-
-    print(f"Reading agent summary from {summary_file}...")
-    try:
-        with open(summary_file, mode='r', encoding='utf-8') as infile:
-            reader = csv.reader(infile)
-            header = next(reader) # Skip header
-            try:
-                # Find the column indices for 'Filename' and 'Top Tiles'
-                filename_col_idx = header.index("Filename")
-                top_tiles_col_idx = header.index("Top Tiles")
-                avg_score_col_idx = header.index("Average Score")
-            except ValueError:
-                print(f"Error: Required columns ('Filename', 'Top Tiles') not found in {summary_file}")
-                return
-
-            for row in reader:
-                # Ensure the row has enough columns
-                if len(row) > max(filename_col_idx, top_tiles_col_idx):
-                     filename_in_csv = row[filename_col_idx].strip()
-                     # test_5th_hiruchaaru_1200.csv -> 5th_hiruchaaru_1200.pth
-                     filename_in_csv = filename_in_csv.replace("test_", "").replace(".csv", ".pth")
-                     preferred_tiles_str = row[top_tiles_col_idx].strip()
-                     agent_avg_score_int = row[avg_score_col_idx].strip()
-                     # Only add preference data for agents whose files were successfully loaded
-                     if filename_in_csv in agent_state_dicts:
-                         agent_preferred_tiles[filename_in_csv] = preferred_tiles_str
-                         agent_avg_score[filename_in_csv] = agent_avg_score_int
-                         print(f" - Read preferences for {filename_in_csv}") # Uncomment for detailed read
-                     else:
-                         print(f"Warning: Summary for agent file '{filename_in_csv}' not found in {agent_dir}. Skipping preference data.") # Uncomment for detailed read
-                else:
-                     print(f"Warning: Skipping malformed row in {summary_file}: {row}") # Uncomment for detailed read
-
-
-    except Exception as e:
-        print(f"Error reading agent summary file {summary_file}: {e}")
-        return
-
-    if not agent_preferred_tiles:
-         print("Error: No agent preferences successfully loaded from summary file. Cannot perform agent selection.")
-         return # Cannot proceed without preferences linking files to scores
-
-    # Initialize the environment and a single agent instance
-    # This agent instance will have its state_dict updated before each episode
-    env = MahjongEnvironment()
-    env.is_test_environment = True
-
-    agent = DQNAgent(412, 34 + 3, device=device)
-    agent.epsilon = 0 # Ensure deterministic action selection during testing
-
-    # Prepare log file
-    if log_save_path:
-        if os.path.exists(log_save_path):
-            # Raise error if the log file already exists, as requested
-             raise FileExistsError(f"Log file {log_save_path} already exists. Please choose a different name or delete it.")
-        with open(log_save_path, "w", encoding="utf-8") as f: # Use "w" to create a new file
-            # Add 'Selected Agent' column to the header
-            f.write("Episode,Seat,Score,Turn,Yaku,MZ_Score,TEZ_Score,TAZ_Score,Tenpai,HandComplete,AgariRate,Selected Agent\n")
-
-    agari = 0
-    total_score = 0
-
-    print(f"\nStarting mixed agent testing for {episodes} episodes...")
-    for ep in range(episodes):
-        # --- Agent Selection for the current episode ---
-        state = env.reset() # Reset environment to get the initial hand
-        the_hand_tiles: list[麻雀牌] = env.手牌 # Assuming env.手牌 is updated by reset()
-
-        best_score = -1
-        selected_agent_filename = None
-
-        # Calculate preference score for each agent's preferred tiles against the current hand
-        for filename, preferred_tiles_string in agent_preferred_tiles.items():
-            # Check if the agent's state dict was actually loaded
-            if filename in agent_state_dicts:
-                score = calculate_weighted_preference_score(the_hand_tiles, preferred_tiles_string, agent_avg_score[filename])
-                if score > best_score:
-                    best_score = score
-                    selected_agent_filename = filename
-
-        # Load the state dict of the selected agent
-        if selected_agent_filename:
-            agent.model.load_state_dict(agent_state_dicts[selected_agent_filename])
-            # print(f"Episode {ep+1}: Selected agent {selected_agent_filename} (Score: {best_score})")
-        elif agent_state_dicts:
-             print(f"Warning: No agent had a positive preference score for hand in episode {ep+1}. Selecting the first loaded agent.")
-             selected_agent_filename = list(agent_state_dicts.keys())[0]
-             agent.model.load_state_dict(agent_state_dicts[selected_agent_filename])
-        else:
-             # This case should not happen if the initial checks passed, but for safety
-             print(f"Error: No agents available to run episode {ep+1}. Aborting.")
-             break
-
-        # --- Run the episode with the selected agent ---
-        ep_reward = 0
-        while True:
-            # The env.step method should use the current state of the 'agent' object
-            next_state, reward, done, info, action = env.step(agent, env.agent_after_pon)
-            state = next_state # Update state for the next step
-            ep_reward += reward
-
-            if done:
-                seat_names = ["East", "South", "West", "North"]
-                envseat = seat_names[env.seat]
-                total_score += info.get('score', 0) # Use .get for safety
-                if info.get('completeyaku', []): # Use .get for safety
-                    agari += 1
-
-                # Calculate cumulative agari rate
-                current_agari_rate = (agari / (ep + 1)) * 100 if (ep + 1) > 0 else 0
-
-                # Log the results including the selected agent
-                if log_save_path:
-                    try:
-                        with open(log_save_path, "a", encoding="utf-8") as f: # Use "a" to append
-                            # Get yaku list string, handle empty list
-                            yaku_str = ' '.join(str(x) for x in info.get('completeyaku', []))
-                            f.write(f"{ep+1},{envseat},{info.get('score', 0)},{info.get('turn', 0)},"
-                                   f"{yaku_str},"
-                                   f"{info.get('mz_score', 0)},{info.get('tuiz_score', 0)},{info.get('tatsu_score', 0)},"
-                                   f"{info.get('tenpai', False)},{info.get('hand_when_complete', '')},{current_agari_rate:.3f},"
-                                   f"{selected_agent_filename}\n") # Log the selected agent
-                    except Exception as log_e:
-                         print(f"Error writing to log file {log_save_path}: {log_e}")
-
-
-                # Print progress update every 500 episodes
-                if (ep + 1) % 500 == 0:
-                    print(f"[TEST] Episode {ep+1}/{episodes} completed. "
-                         f"Avg score: {total_score/(ep+1):.2f}, "
-                         f"Agari rate: {current_agari_rate:.2f}%. "
-                         f"Selected agent for last episode: {selected_agent_filename}")
-
-                break # End of episode inner while loop
-
-    print(f"\n[TEST COMPLETE] Total episodes: {episodes}")
-    print(f"Average score: {total_score/episodes:.2f}")
-    print(f"Agari rate: {agari/episodes*100:.3f}%")
-
-
-
 
 def train_and_test_pipeline():
-    agent_name = "zi0"
-    train_agent(999, name=agent_name, device="cuda", save_every_this_ep=100, save_after_this_ep=99)
-    test_all_agent_candidates(1000, "cuda")
+    agent_name = "AI_テスト"
+    train_agent(1499, name=agent_name, device="cuda", save_every_this_ep=100, save_after_this_ep=50)
+    test_all_agent_candidates(400, "cuda")
 
 
 if __name__ == "__main__":
-    # train_and_test_pipeline()
+    train_and_test_pipeline()
     # test_all_agent_candidates(1000, "cuda")
     # test_all_agents(1000, 'cuda')
     # test_agent(episodes=5000, model_path=f"./DQN_agents/7tui_hr_a_2800.pth", device="cuda")
-    test_mixed_agent(3000, "cuda")
+
