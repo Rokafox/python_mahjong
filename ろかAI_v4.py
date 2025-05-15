@@ -29,13 +29,13 @@ class MahjongEnvironment:
     ACTION_CHI = _MAX_DISCARD_GROUPS + 2
     AGENT_HAND_SIZE = 13
 
-    def __init__(self):
-        self.agent_tile_count = 13
-        self.sandbag_tile_count = 13
+    def __init__(self, is_test: bool):
+        self.agent_tile_count = self.AGENT_HAND_SIZE
+        self.sandbag_tile_count = self.AGENT_HAND_SIZE
         self.action_lgid_to_canonical_map: dict[int, int] = {}
         self.reset()
         # test environment does not give penalty nor hand reward
-        self.is_test_environment = False
+        self.is_test_environment = is_test
 
     # --------------------------------------------------
     # ゲーム管理
@@ -55,7 +55,8 @@ class MahjongEnvironment:
 
     def reset(self):
         self.手牌: list[麻雀牌]
-        self.山 = 山を作成する()
+        self.sandbag_a_tiles: list[麻雀牌]
+        self.山: list[麻雀牌] = 山を作成する()
         # self.山 = 基礎訓練山を作成する()
         (
             self.手牌,
@@ -69,7 +70,7 @@ class MahjongEnvironment:
             sandbag_count=self.sandbag_tile_count
         )
         self.current_actor = 0  # 0=agent, 1=sandbag_a, 2=sandbag_b, 3=sandbag_c
-        self.discard_pile = []  # Record what tiles are discarded in current game.
+        self.discard_pile: list[麻雀牌] = []  # Record what tiles are discarded in current game.
         self.seat = random.randint(0, 3)  # 0=東, 1=南, 2=西, 3=北
         self.score = 0
         self.turn  = 0
@@ -114,7 +115,7 @@ class MahjongEnvironment:
         return self._get_canonical_id(tile1) == self._get_canonical_id(tile2)
 
 
-    def _get_tile_base_properties(self, tile: 麻雀牌, is_explicitly_exposed: bool = None) -> tuple:
+    def _get_tile_base_properties(self, tile: 麻雀牌 | None) -> tuple:
         """
         Extracts base properties (excluding local group ID).
         Returns: (suit_cat, number, is_exposed, is_honor, honor_id_val)
@@ -137,11 +138,39 @@ class MahjongEnvironment:
         return (suit_cat, num_val, is_exposed_val, is_honor_val, honor_id_val)
 
 
-    def _get_state_unified(self, last_tile: 麻雀牌 = None) -> np.ndarray:
+    def _get_state_unified(self, last_tile: 麻雀牌 | None = None) -> np.ndarray:
         actual_hand_tiles = sorted(
             [tile for tile in self.手牌 if tile is not None],
             key=lambda t: self._get_canonical_id(t)
         )
+
+        # Calculate tile relationships for 順子 detection
+        tile_relationships = [0]  # First tile has no previous tile to compare
+        for i in range(1, len(actual_hand_tiles)):
+            current_tile = actual_hand_tiles[i]
+            prev_tile = actual_hand_tiles[i-1]
+            
+            # Get properties for comparison
+            current_suit, current_num = current_tile.何者, current_tile.その上の数字
+            prev_suit, prev_num = prev_tile.何者, prev_tile.その上の数字
+            
+            # Default relationship: no relation
+            relationship = 0
+            
+            # Check if same suit/honor category
+            if current_suit == prev_suit:
+                if current_num == prev_num:
+                    # Same tile type (helps with 刻子 detection)
+                    relationship = 1
+                elif abs(current_num - prev_num) == 1:
+                    # Sequential tiles (helps with 順子 detection)
+                    relationship = 2
+            
+            tile_relationships.append(relationship)
+        
+        # Pad relationships to match hand size
+        while len(tile_relationships) < self.AGENT_HAND_SIZE:
+            tile_relationships.append(0)
 
         hand_local_group_ids = []
         canonical_to_group_map = {}
@@ -163,31 +192,65 @@ class MahjongEnvironment:
             if i < len(actual_hand_tiles): # Use actual_hand_tiles here
                 tile = actual_hand_tiles[i]
                 local_id = hand_local_group_ids[i]
+                relationship_code = tile_relationships[i]  # Add the relationship code
                 base_props = self._get_tile_base_properties(tile)
-                hand_features_list.extend([local_id, *base_props])
+                hand_features_list.extend([local_id, relationship_code, *base_props])
             else: 
-                padding_local_id = -1 
+                padding_local_id = -1
+                relationship_code = 0 
                 base_props_padding = self._get_tile_base_properties(None)
-                hand_features_list.extend([padding_local_id, *base_props_padding])
+                hand_features_list.extend([padding_local_id, relationship_code, *base_props_padding])
         
         hand_tiles_state = np.array(hand_features_list, dtype=np.float32)
 
         # --- Last Tile Encoding ---
         last_tile_local_id = -1 # Default for padding 
-        base_props_last_tile = self._get_tile_base_properties(last_tile, is_explicitly_exposed=False)
+        last_tile_relationship = 0  # Default relationship for last tile
+        base_props_last_tile = self._get_tile_base_properties(last_tile)
 
         if last_tile is not None:
             last_tile_cano_id = self._get_canonical_id(last_tile)
             if last_tile_cano_id in canonical_to_group_map:
                 last_tile_local_id = canonical_to_group_map[last_tile_cano_id]
             else:
-                # If hand was empty, max_local_id_in_hand is -1, so new ID is 0.
-                # Otherwise, it's the next ID after existing hand groups.
                 last_tile_local_id = max_local_id_in_hand + 1
+            
+            # Check relationship with ANY tile in the hand
+            has_same_tile = False
+            has_sequential_tile = False
+            
+            if actual_hand_tiles:
+                last_suit, last_num = last_tile.何者, last_tile.その上の数字
+                
+                for hand_tile in actual_hand_tiles:
+                    hand_suit, hand_num = hand_tile.何者, hand_tile.その上の数字
+                    
+                    if last_suit == hand_suit:
+                        if last_num == hand_num:
+                            has_same_tile = True
+                        elif abs(last_num - hand_num) == 1:
+                            has_sequential_tile = True
+                    
+                    # If we already found both relationships, we can stop checking
+                    if has_same_tile and has_sequential_tile:
+                        break
+            
+            # Encode relationship as:
+            # 0: No relationship
+            # 1: Same tile exists
+            # 2: Sequential tile exists
+            # 3: Both relationships exist
+            if has_same_tile and has_sequential_tile:
+                last_tile_relationship = 3
+            elif has_same_tile:
+                last_tile_relationship = 1
+            elif has_sequential_tile:
+                last_tile_relationship = 2
         
-        last_tile_state_list = [last_tile_local_id, *base_props_last_tile]
+        last_tile_state_list = [last_tile_local_id, last_tile_relationship, *base_props_last_tile]
         last_tile_state = np.array(last_tile_state_list, dtype=np.float32)
         
+        # --- Seat Encoding ---
         seat_state = np.zeros(4, dtype=np.float32)
         seat_state[self.seat] = 1.0
         
@@ -197,22 +260,22 @@ class MahjongEnvironment:
         if 0 <= self.current_actor < 4:
             actor_state[self.current_actor] = 1.0
 
-        # Total state size:
-        # (AGENT_HAND_SIZE) * (1 local ID + 5 base props)  -> 13 * 6 = 78 (for hand slots)
-        # + 1 * (1 local ID + 5 base props)                   -> 1 * 6 = 6  (for last tile slot)
-        # + 4                                                 -> 4          (for seat)
-        # + 4                                                 -> 4          (for actor)
-        # Total: 78 + 6 + 4 + 4 = 92
+        # state size calculation:
+        # (AGENT_HAND_SIZE) * (1 local ID + 1 relationship + 5 base props) -> 13 * 7 = 91 (for hand slots)
+        # + 1 * (1 local ID + 1 relationship + 5 base props)                -> 1 * 7 = 7  (for last tile slot)
+        # + 4                                                               -> 4          (for seat)
+        # + 4                                                               -> 4          (for actor)
+        # Total: 91 + 7 + 4 + 4 = 106
 
         return np.concatenate([
-            hand_tiles_state,  # (AGENT_HAND_SIZE) * 6 features
-            last_tile_state,   # 1 * 6 features
+            hand_tiles_state,  # (AGENT_HAND_SIZE) * 7 features
+            last_tile_state,   # 1 * 7 features
             seat_state,        # 4 features
             actor_state        # 4 features
         ])
 
 
-    def get_valid_actions(self, last_tile: 麻雀牌 = None, tenpai: bool = False) -> list[int]:
+    def get_valid_actions(self, last_tile: 麻雀牌 | None = None, tenpai: bool = False) -> list[int]:
         """
         Generates a list of valid action IDs.
         For agent's turn (discard): action IDs are local group IDs of discardable tiles.
@@ -289,13 +352,17 @@ class MahjongEnvironment:
         self.mz_score += mz_score
         reward_extra += mz_score
 
-        # tuiz_score = int(刻子スコア(self.手牌) * 4)
-        # self.tuiz_score += tuiz_score
-        # reward_extra += tuiz_score
+        tuiz_score = int(刻子スコア(self.手牌) * 4)
+        self.tuiz_score += tuiz_score
+        reward_extra += tuiz_score
 
         # tatsu_score = int(順子スコア(self.手牌, [[1,2,3],[4,5,6],[7,8,9]]) * 100)
         # self.tatsu_score += tatsu_score
         # reward_extra += tatsu_score
+
+        tatsu_score = int(順子スコア(self.手牌) * 4)
+        self.tatsu_score += tatsu_score
+        reward_extra += tatsu_score
 
         # tuiz_score += int(対子スコア(self.手牌) * 8)
         # self.tuiz_score += tuiz_score
@@ -303,120 +370,36 @@ class MahjongEnvironment:
 
         ht_counter = Counter((t.何者, t.その上の数字) for t in self.手牌)
 
-        # ====================================================
-        # 対々和 reward system. Best training episodes: 99 - 399
-        # Agent trained: 対々和MNOP
-        # reward: this block + int(刻子スコア(self.手牌) * 4) + 聴牌
-        # ----------------------------------------------------
-        # train loop:
-        # train_agent(399, name=agent_name, device="cuda", save_every_this_ep=100, save_after_this_ep=50,
-        #             e=0.5, em=0.5)
-        # test_all_agent_candidates(500, "cuda", target_yaku="対々和", performance_method=2)
-        # ----------------------------------------------------
-        # for t in self.手牌:
-        #     if t.exposed_state == 'pon':
-        #         reward_extra += 6
-        #         self.penalty_A -= 6
-        #     elif t.exposed_state == 'chii':
-        #         reward_extra -= 60
-        #         self.penalty_A += 60
-        # reward_extra += (10 - len(ht_counter)) * 50
-        # self.penalty_A -= (10 - len(ht_counter)) * 50
-        # ====================================================
-        # ====================================================
-        # 三色通貫 reward system. Best training episodes: 99 - 399
-        # Agent trained: 三色通貫A
-        # reward: this block + int(刻子スコア(self.手牌) * 4) + 聴牌
-        # ----------------------------------------------------
-        # train loop:
-        # train_agent(399, name=agent_name, device="cuda", save_every_this_ep=100, save_after_this_ep=50,
-        #             e=0.5, em=0.5)
-        # test_all_agent_candidates(500, "cuda", target_yaku="対々和", performance_method=2)
-        # ----------------------------------------------------
-        # if naki_tile_chii:
-        #     match naki_tile_chii.その上の数字:
-        #         case 2 | 5 | 8:
-        #             reward_extra += 1000
-        #             self.penalty_A -= 1000
-        #             # print(f"Correct Naki: {str(naki_tile_chii)}")
-        #         case 1 | 3 | 4 | 6 | 7 | 9 | 0:
-        #             reward_extra -= 1000
-        #             self.penalty_A += 1000
-        # ====================================================
-
-
-        # zuiso reward system. Suggested training episodes: 99
-        # for t in self.手牌:
-        #     if "字牌" in t.固有状態:
-        #         reward_extra += 30
-        #         self.penalty_A -= 30
-        #     else:
-        #         reward_extra -= 30
-        #         self.penalty_A += 30
-
-        # green iso reward system. Suggested training episodes: untested
-        # for key, cnt in ht_counter.items():
-        #     if key[0] == "索子":
-        #         if key[1] in [2, 3, 4, 6, 8]:
-        #             reward_extra += 30 * cnt
-        #             self.penalty_A -= 30 * cnt
-        #     elif key[0] == "發ちゃん":
-        #         reward_extra += 30 * cnt
-        #         self.penalty_A -= 30 * cnt
-        #     else:
-        #         reward_extra -= 30 * cnt
-        #         self.penalty_A += 30 * cnt
-
-        # qin itu. Suggested training episodes 300 - 1000
         for key, cnt in ht_counter.items():
             if key[0] == "萬子": # "萬子", "筒子", "索子"
-                reward_extra += 30 * cnt
-                self.penalty_A -= 30 * cnt
+                reward_extra += 8 * cnt
+                self.penalty_A -= 8 * cnt
             else:
-                reward_extra -= 30 * cnt
-                self.penalty_A += 30 * cnt
+                reward_extra -= 8 * cnt
+                self.penalty_A += 8 * cnt
 
-
-        # Chyanta. Suggested training episodes 300 - 1000
-        # for t in self.手牌:
-        #     if t.何者 in {"萬子", "筒子", "索子"} and t.その上の数字 in {4,5,6}:
-        #         reward_extra -= 60
-        #         self.penalty_A += 60
-        #     else:
-        #         reward_extra += 30
-        #         self.penalty_A -= 30
-        # for key, cnt in ht_counter.items():
-        #     if key[1] == 2:
-        #         if ht_counter[(key[0], 3)] != cnt or ht_counter[(key[0], 1)] < cnt:
-        #             reward_extra -= 60
-        #             self.penalty_A += 60
-        #     if key[1] == 3:
-        #         if ht_counter[(key[0], 2)] != cnt or ht_counter[(key[0], 1)] < cnt:
-        #             reward_extra -= 60
-        #             self.penalty_A += 60
-        #     if key[1] == 8:
-        #         if ht_counter[(key[0], 7)] != cnt or ht_counter[(key[0], 9)] < cnt:
-        #             reward_extra -= 60
-        #             self.penalty_A += 60
-        #     if key[1] == 7:
-        #         if ht_counter[(key[0], 8)] != cnt or ht_counter[(key[0], 9)] < cnt:
-        #             reward_extra -= 60
-        #             self.penalty_A += 60
-
-
-        # Penalty for having exposed tiles
-        # the_exposed = [t for t in self.手牌 if t.副露]
-        # punishment_of_the_exposed = len(the_exposed) * 30
-        # reward_extra -= punishment_of_the_exposed
-        # self.penalty_A += punishment_of_the_exposed
-
-
-        # Custom 7 tui penalty
-        # counter = Counter((t.何者, t.その上の数字) for t in self.手牌)
-        # for key, cnt in counter.items():
-        #     if cnt == 2 or cnt == 4:
-        #         reward_extra += 9
-        #         self.penalty_A -= 9
+        # present_categories = set()
+        # for tile in 手牌:
+        #     if "四風牌" in tile.固有状態:
+        #         present_categories.add("四風牌")
+        #     elif "三元牌" in tile.固有状態:
+        #         present_categories.add("三元牌")
+        #     elif tile.何者 in ["筒子", "萬子", "索子"]:
+        #          present_categories.add(tile.何者)
+        # 五門_counter = len(present_categories)
+        # assert 1 <= 五門_counter <= 5
+        # if 五門_counter == 1:
+        #     reward_extra += 5
+        # elif 五門_counter == 2:
+        #     reward_extra += 2
+        # elif 五門_counter == 3:
+        #     reward_extra -= 2
+        # elif 五門_counter == 4:
+        #     reward_extra -= 5
+        # elif 五門_counter == 5:
+        #     reward_extra -= 10
+        # else:
+        #     raise Exception
 
         return reward_extra
 
@@ -458,13 +441,12 @@ class MahjongEnvironment:
         valid_actions: list = self.get_valid_actions(last_tile=newly_drawn_tile,
                                                      tenpai=tenpai_before_draw)
         assert len(valid_actions) > 0
-        action: int
         action, full_dict = actor.act(self._get_state_unified(newly_drawn_tile), valid_actions)
         assert 0 <= action <= 13
         if not self.is_test_environment:
             # reward -= 2  # base penalty
             reward -= int(self.turn * 0.5)
-        tile_type = self.map_action_lgid_to_canonical_id(action)
+        tile_type = self.map_action_lgid_to_canonical_id(int(action))
         # print(tile_type) # ('筒子', 5)
         target_tile = None
         for t in [t for t in self.手牌 if not t.副露]:
@@ -521,14 +503,7 @@ class MahjongEnvironment:
         # To decide whether to "ポン", use the action value dict, pon
         # if 34 + tile_idx > 68 + tile_idx, otherwise do not pon.
 
-        # Determine which sandbag is currently active
-        sandbag_tiles = None
-        if self.current_actor == 1:
-            sandbag_tiles = self.sandbag_a_tiles
-        # elif self.current_actor == 2: # removed
-        #     sandbag_tiles = self.sandbag_b_tiles 
-        # elif self.current_actor == 3: # The player is removed
-        #     sandbag_tiles = self.sandbag_c_tiles
+        sandbag_tiles = self.sandbag_a_tiles
         
         # Draw tile
         new_tile = self.山.pop(0)
@@ -596,7 +571,6 @@ class MahjongEnvironment:
                 valid_actions: list = self.get_valid_actions(discarded_tile)
                 valid_actions.remove(16)
                 assert 14 in valid_actions and 15 in valid_actions
-                action: int
                 action, full_dict = actor.act(self._get_state_unified(discarded_tile), valid_actions)
                 if action == 15:
                     # print(f"ポン！{discarded_tile.何者} {discarded_tile.その上の数字}")
@@ -665,7 +639,6 @@ class MahjongEnvironment:
                     valid_actions: list = self.get_valid_actions(discarded_tile)
                     valid_actions.remove(15)
                     assert 14 in valid_actions and 16 in valid_actions
-                    action: int
                     action, full_dict = actor.act(self._get_state_unified(discarded_tile), valid_actions)
                     if action == 16:
                         # print(f"チー！{discarded_tile.何者} {discarded_tile.その上の数字}")
@@ -918,44 +891,50 @@ class DQNAgent:
         B = state_batch.size(0)
         # Initialize mask to all False
         mask = torch.zeros((B, self.action_size), dtype=torch.bool, device=state_batch.device)
-
+        
         # Define indices for action constants
         action_pass_idx = 14
         action_pon_idx = 15
         action_chi_idx = 16
-
-        # State slicing indices based on the inferred structure (13 hand tiles + 1 last tile)
-        # hand_features_end = self.AGENT_HAND_SIZE * 6 # 13 * 6 = 78
-        # last_tile_features_start = hand_features_end # 78
-        # last_tile_features_end = last_tile_features_start + 6 # 84
-        # actor_features_start = last_tile_features_end + 4 # 88 (assuming seat is 4 features after last tile)
-        actor_features_start = 88
-
+        
+        # Updated state slicing indices based on the new structure with relationship feature
+        # hand_features_end = self.AGENT_HAND_SIZE * 7 # 13 * 7 = 91
+        # last_tile_features_start = hand_features_end # 91
+        # last_tile_features_end = last_tile_features_start + 7 # 98
+        # seat_features_start = last_tile_features_end # 98
+        # seat_features_end = seat_features_start + 4 # 102
+        # actor_features_start = seat_features_end # 102
+        
+        # Updated actor features start (91 for hand + 7 for last_tile + 4 for seat = 102)
+        actor_features_start = 102
+        
         for i in range(B):
             state = state_batch[i]
+            
             # Determine current actor from the one-hot encoding
-            # Find the index where the actor one-hot vector is 1.0
             actor_one_hot = state[actor_features_start : actor_features_start + 4]
             current_actor = torch.argmax(actor_one_hot).item()
-
-            if current_actor == 0: # Agent's turn: Discard actions
-                hand_local_ids = state[0 : 13 * 6 : 6] # Slice with step 6 to get local_id
-                last_tile_local_id = state[13 * 6] # Should be index 78
+            
+            if current_actor == 0:  # Agent's turn: Discard actions
+                # Slice with step 7 to get local_id (now at indices 0, 7, 14, etc.)
+                hand_local_ids = state[0 : 13 * 7 : 7]  
+                last_tile_local_id = state[13 * 7]  # Should be index 91
+                
                 all_local_ids = torch.cat((hand_local_ids, last_tile_local_id.unsqueeze(0)))
-                valid_local_ids = all_local_ids[all_local_ids != -1].unique().long() # Use .long() for indexing
+                valid_local_ids = all_local_ids[all_local_ids != -1].unique().long()  # Use .long() for indexing
                 valid_local_ids_within_range = valid_local_ids[valid_local_ids < 14]
-
+                
                 if valid_local_ids_within_range.numel() > 0:
                     mask[i, valid_local_ids_within_range] = True
-
-            else: # Opponent's turn: Call/Pass actions
+            
+            else:  # Opponent's turn: Call/Pass actions
                 if action_pass_idx < self.action_size:
                     mask[i, action_pass_idx] = True
                 if action_pon_idx < self.action_size:
                     mask[i, action_pon_idx] = True
                 if action_chi_idx < self.action_size:
                     mask[i, action_chi_idx] = True
-
+        
         return mask
 
     def replay(self, batch_size: int = 64):
@@ -1059,8 +1038,8 @@ def train_agent(episodes: int = 2999, name: str = "agent",
                 device: str = "cuda", save_every_this_ep: int = 1000,
                 save_after_this_ep: int = 900,
                 e = 1.0, em = 0.01, ed = 0.998) -> DQNAgent:
-    env = MahjongEnvironment()
-    agent = DQNAgent(92, 17, device=device, epsilon=e, epsilon_min=em, epsilon_decay=ed)
+    env = MahjongEnvironment(False)
+    agent = DQNAgent(106, 17, device=device, epsilon=e, epsilon_min=em, epsilon_decay=ed)
     assert save_every_this_ep >= 99, "Reasonable saving interval must be no less than 99."
     log_save_path = f"./log/train_{name}.csv"
 
@@ -1116,10 +1095,10 @@ def train_agent(episodes: int = 2999, name: str = "agent",
                 agent.decay_epsilon()
 
                 # Add episode to episodic memory if successful
-                if ep_reward > agent.SUCCESS_REWARD_THRESHOLD:
+                # if ep_reward > agent.SUCCESS_REWARD_THRESHOLD:
                 # Or: Add to memory as long as it is a win.
-                # yaku_list: list = info.get('completeyaku', [])
-                # if len(yaku_list) > 0:
+                yaku_list: list = info.get('completeyaku', [])
+                if len(yaku_list) > 0:
                     # Pass the collected transitions and the total reward
                     agent.add_episode_to_memory(agent.current_episode_transitions, ep_reward)
                     # print(f"Episode {ep+1}: Added to episodic memory with reward {ep_reward}") # Debugging
@@ -1176,9 +1155,8 @@ def train_agent(episodes: int = 2999, name: str = "agent",
 
 
 def test_agent(episodes: int, model_path: str, device: str = "cpu", target_yaku: str = "None") -> tuple[float, float, int]:
-    env = MahjongEnvironment()
-    env.is_test_environment = True
-    agent = DQNAgent(92, 17, device=device)
+    env = MahjongEnvironment(True)
+    agent = DQNAgent(106, 17, device=device)
     agent.epsilon = 0
     log_save_path = f"./log/test_{model_path.split('/')[-1].split('.')[0]}.csv"
     
@@ -1340,16 +1318,16 @@ def test_all_agents(episodes: int, device: str = "cpu") -> None:
 
 
 def train_and_test_pipeline():
-    agent_name = "AI_清一色"
+    agent_name = "I"
     for ab in "A":
-        train_agent(299, name=agent_name + ab, device="cuda", save_every_this_ep=100, save_after_this_ep=50,
+        train_agent(399, name=agent_name + ab, device="cuda", save_every_this_ep=100, save_after_this_ep=50,
                     e=0.5, em=0.5)
-        test_all_agent_candidates(500, "cuda", target_yaku="清一色", performance_method=2)
+        test_all_agent_candidates(500, "cuda", target_yaku="None", performance_method=1)
 
 
 if __name__ == "__main__":
     train_and_test_pipeline()
-    # test_all_agent_candidates(500, "cuda", delete_poor=True, target_yaku="対々和")
+    # test_all_agent_candidates(500, "cuda", delete_poor=False)
     # test_all_agents(1000, 'cuda')
     # test_agent(episodes=5000, model_path=f"./DQN_agents/7tui_hr_a_2800.pth", device="cuda")
 

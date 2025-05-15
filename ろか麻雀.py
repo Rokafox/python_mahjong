@@ -140,7 +140,7 @@ class 麻雀牌:
 
 
 
-def calculate_weighted_preference_score(tiles_list: list[麻雀牌], input_string: str, agent_score: int) -> int:
+def calculate_weighted_preference_score(tiles_list: list[麻雀牌], input_string: str, agent_score: int) -> float:
     """
     Given a list of Mahjong tiles and a string of preferred tiles with scores,
     calculates a weighted preference score for the tiles_list.
@@ -351,7 +351,7 @@ def 刻子スコア(tiles: list[麻雀牌]) -> int:
     return score_table[min(刻子数, 4)]
 
 
-def 順子スコア(tiles: list[麻雀牌], allowed_sequences: list[list[int]] = None) -> int:
+def 順子スコア(tiles: list[麻雀牌], allowed_sequences: list[list[int]] | None = None) -> int:
     """
     13 枚の手牌から順子（連続する3枚の数牌）の最大数を求めて
     0順子→0, 1順子→1, 2順子→2, 3順子→4, 4順子→8を返す。雀頭は数えない。
@@ -1092,7 +1092,7 @@ def 三風刻(tiles: list[麻雀牌]) -> bool:
 
 def 客風三刻(tiles: list[麻雀牌], seat: int) -> bool:
     dic = {0: "東風", 1: "南風", 2: "西風", 3: "北風"}
-    to_remove = dic.get(seat, None)
+    to_remove = dic.get(seat, "")
     abcd = ["東風", "南風", "西風", "北風"]
     abcd.remove(to_remove)
     assert len(abcd) == 3
