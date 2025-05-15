@@ -92,6 +92,16 @@ class 麻雀牌:
         self.exposed_state = es
         return None
 
+    def get_exposed_status(self):
+        if not self.副露:
+            return 0
+        else:
+            if self.exposed_state == "pon":
+                return 1
+            elif self.exposed_state == "chii":
+                return 2
+        raise Exception
+
     def get_asset(self, yoko: bool = False) -> str:
         """
         牌に対応する PNG ファイルのパスを返す。
@@ -341,48 +351,93 @@ def 刻子スコア(tiles: list[麻雀牌]) -> int:
     return score_table[min(刻子数, 4)]
 
 
-def 順子スコア(tiles: list[麻雀牌]) -> int:
+def 順子スコア(tiles: list[麻雀牌], allowed_sequences: list[list[int]] = None) -> int:
     """
     13 枚の手牌から順子（連続する3枚の数牌）の最大数を求めて
     0順子→0, 1順子→1, 2順子→2, 3順子→4, 4順子→8を返す。雀頭は数えない。
+    
+    allowed_sequences: 有効な順子の組み合わせを指定する（例：[[1, 2, 3], [4, 5, 6]]）
+    指定がない場合は通常の連続する3枚を順子とみなす。
     """
     tiles.sort(key=lambda x: (x.sort_order, x.その上の数字))
-    
     counter = Counter((t.何者, t.その上の数字) for t in tiles)
     memo: dict[tuple[tuple[tuple[str, int], int], ...], int] = {}
+    
     数牌 = ("萬子", "筒子", "索子")
     
     def dfs(c: Counter) -> int:
         """残りカウンタ c から作れる最大順子数を返す（メモ化付き）"""
         key = tuple(sorted((k, v) for k, v in c.items() if v))
-        if not key:             # 牌が残っていない
+        if not key:  # 牌が残っていない
             return 0
-        if key in memo:         # メモ化
+        if key in memo:  # メモ化
             return memo[key]
         
         best = 0
+        
         # すべての牌を起点に「順子」のみを試す
         for (suit, num), cnt in list(c.items()):
-            if cnt == 0 or suit not in 数牌 or num > 7:
+            if cnt == 0 or suit not in 数牌:
                 continue
+            
+            if allowed_sequences:
+                # 許可された順子のみを考慮
+                for seq in allowed_sequences:
+                    # この順子の開始数字が現在の牌と一致するかチェック
+                    if seq[0] != num:
+                        continue
+                    
+                    # この順子が形成可能かチェック
+                    can_form = True
+                    for seq_num in seq:
+                        if c.get((suit, seq_num), 0) == 0:
+                            can_form = False
+                            break
+                    
+                    if can_form:
+                        # 牌を使用
+                        for seq_num in seq:
+                            c[(suit, seq_num)] -= 1
+                        
+                        best = max(best, 1 + dfs(c))
+                        
+                        # 牌を戻す
+                        for seq_num in seq:
+                            c[(suit, seq_num)] += 1
+            else:
+                # 通常の順子（連続する3枚）のみを考慮
+                if num > 7:  # 順子の開始数字が7を超えると無効
+                    continue
                 
-            # 順子のみを考慮
-            k1, k2 = (suit, num + 1), (suit, num + 2)
-            if c[k1] and c[k2]:
-                c[(suit, num)] -= 1
-                c[k1]          -= 1
-                c[k2]          -= 1
-                best = max(best, 1 + dfs(c))
-                c[(suit, num)] += 1
-                c[k1]          += 1
-                c[k2]          += 1
-                
+                k1, k2 = (suit, num + 1), (suit, num + 2)
+                if c[k1] and c[k2]:
+                    c[(suit, num)] -= 1
+                    c[k1] -= 1
+                    c[k2] -= 1
+                    best = max(best, 1 + dfs(c))
+                    c[(suit, num)] += 1
+                    c[k1] += 1
+                    c[k2] += 1
+        
         memo[key] = best
         return best
     
-    順子数 = dfs(counter)                # 0〜4
+    順子数 = dfs(counter)  # 0〜4
     return [0, 1, 2, 4, 8][順子数]
 
+
+# 手牌 = [ 
+#     麻雀牌("西風", 0, False), 麻雀牌("西風", 0, False), 麻雀牌("西風", 0, False), 
+#     麻雀牌("萬子", 1, False), 麻雀牌("萬子", 2, False), 麻雀牌("萬子", 3, False),  
+#     麻雀牌("筒子", 6, False), 麻雀牌("筒子", 6, False),
+#     麻雀牌("中ちゃん", 0, False, 副露=True),
+#     麻雀牌("中ちゃん", 0, False, 副露=True),
+#     麻雀牌("中ちゃん", 0, False, 副露=True),
+#     麻雀牌("白ちゃん", 0, False, 副露=True),
+#     麻雀牌("白ちゃん", 0, False, 副露=True),
+#     麻雀牌("白ちゃん", 0, False, 副露=True),        
+# ]
+# print(順子スコアv2(手牌, [[1,2,3],[4,5,6]]))
 
 
 def 対子スコア(tiles: list[麻雀牌]) -> int:
@@ -1278,17 +1333,20 @@ def 五門斉(tiles: list[麻雀牌]) -> bool:
 
 def 対々和(tiles: list[麻雀牌]) -> bool:
     """
-    すべての面子が刻子または槓子で構成されている和了形。
+    すべての面子が刻子で構成されている和了形。
     """
     counter = Counter((t.何者, t.その上の数字) for t in tiles)
-    c = 0
-    if len(counter) <= 5:
-        for key, cnt in counter.items():
-            if cnt >= 3:
-                c += 1
-        if c >= 4:
-            return True
-    return False
+    # v4: fix 萬子7 萬子7 萬子7 萬子8 萬子9 筒子1 筒子1 筒子1 | 萬子8 萬子8 萬子8 筒子3 筒子3 筒子3
+    pairs = 0
+    triplets = 0
+    for count in counter.values():
+        if count == 2:
+            pairs += 1
+        elif count >= 3:
+            triplets += 1
+        else:
+            return False
+    return pairs == 1 and triplets == 4
 
 
 # 手牌 = [
@@ -1296,12 +1354,10 @@ def 対々和(tiles: list[麻雀牌]) -> bool:
 #     麻雀牌("索子", 3, False), 麻雀牌("索子", 3, False), 麻雀牌("索子", 3, False),  
 #     麻雀牌("萬子", 4, False), 麻雀牌("萬子", 4, False), 麻雀牌("萬子", 4, False), 
 #     麻雀牌("筒子", 7, False), 麻雀牌("筒子", 7, False), 麻雀牌("筒子", 7, False),  
-#     麻雀牌("索子", 2, False),
-#     麻雀牌("索子", 3, False) 
+#     麻雀牌("索子", 4, False),
+#     麻雀牌("索子", 4, False) 
 # ]
 # 手牌.sort(key=lambda x: (x.sort_order, x.その上の数字))
-# for t in 手牌:
-#     print(t.何者, t.その上の数字, t.副露)
 # print(対々和(手牌))
 
 
@@ -1690,4 +1746,4 @@ def create_mahjong_tiles_from_line(line: str) -> list[麻雀牌]:
 
 if __name__ == "__main__":
     pass
-    generate_tenpai(50000)
+    # generate_tenpai(50000)

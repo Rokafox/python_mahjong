@@ -133,7 +133,7 @@ class MahjongEnvironment:
             honor_id_val = self.HONOR_ID_MAPPING.get(suit_val, 0)
             num_val = 0
 
-        is_exposed_val = int(is_explicitly_exposed) if is_explicitly_exposed is not None else int(tile.副露)
+        is_exposed_val = tile.get_exposed_status()
         return (suit_cat, num_val, is_exposed_val, is_honor_val, honor_id_val)
 
 
@@ -276,7 +276,8 @@ class MahjongEnvironment:
 
 
 
-    def _agent_extra_reward(self, 手牌: list[麻雀牌]) -> int:
+    def _agent_extra_reward(self, 手牌: list[麻雀牌], naki_tile_pon: 麻雀牌 | None = None,
+                            naki_tile_chii: 麻雀牌 | None = None) -> int:
         reward_extra = 0
 
         # 聴牌の場合、大量の報酬を与える
@@ -284,7 +285,7 @@ class MahjongEnvironment:
             reward_extra += 300
             self.total_tennpai += 1
         
-        mz_score = int(面子スコア(self.手牌) * 4)
+        mz_score = int(面子スコア(self.手牌) * 8)
         self.mz_score += mz_score
         reward_extra += mz_score
 
@@ -292,7 +293,7 @@ class MahjongEnvironment:
         # self.tuiz_score += tuiz_score
         # reward_extra += tuiz_score
 
-        # tatsu_score = int(順子スコア(self.手牌) * 4)
+        # tatsu_score = int(順子スコア(self.手牌, [[1,2,3],[4,5,6],[7,8,9]]) * 100)
         # self.tatsu_score += tatsu_score
         # reward_extra += tatsu_score
 
@@ -302,7 +303,16 @@ class MahjongEnvironment:
 
         ht_counter = Counter((t.何者, t.その上の数字) for t in self.手牌)
 
-        # tuitui reward system. Suggested training episodes: 99
+        # ====================================================
+        # 対々和 reward system. Best training episodes: 99 - 399
+        # Agent trained: 対々和MNOP
+        # reward: this block + int(刻子スコア(self.手牌) * 4) + 聴牌
+        # ----------------------------------------------------
+        # train loop:
+        # train_agent(399, name=agent_name, device="cuda", save_every_this_ep=100, save_after_this_ep=50,
+        #             e=0.5, em=0.5)
+        # test_all_agent_candidates(500, "cuda", target_yaku="対々和", performance_method=2)
+        # ----------------------------------------------------
         # for t in self.手牌:
         #     if t.exposed_state == 'pon':
         #         reward_extra += 6
@@ -312,6 +322,28 @@ class MahjongEnvironment:
         #         self.penalty_A += 60
         # reward_extra += (10 - len(ht_counter)) * 50
         # self.penalty_A -= (10 - len(ht_counter)) * 50
+        # ====================================================
+        # ====================================================
+        # 三色通貫 reward system. Best training episodes: 99 - 399
+        # Agent trained: 三色通貫A
+        # reward: this block + int(刻子スコア(self.手牌) * 4) + 聴牌
+        # ----------------------------------------------------
+        # train loop:
+        # train_agent(399, name=agent_name, device="cuda", save_every_this_ep=100, save_after_this_ep=50,
+        #             e=0.5, em=0.5)
+        # test_all_agent_candidates(500, "cuda", target_yaku="対々和", performance_method=2)
+        # ----------------------------------------------------
+        # if naki_tile_chii:
+        #     match naki_tile_chii.その上の数字:
+        #         case 2 | 5 | 8:
+        #             reward_extra += 1000
+        #             self.penalty_A -= 1000
+        #             # print(f"Correct Naki: {str(naki_tile_chii)}")
+        #         case 1 | 3 | 4 | 6 | 7 | 9 | 0:
+        #             reward_extra -= 1000
+        #             self.penalty_A += 1000
+        # ====================================================
+
 
         # zuiso reward system. Suggested training episodes: 99
         # for t in self.手牌:
@@ -336,13 +368,13 @@ class MahjongEnvironment:
         #         self.penalty_A += 30 * cnt
 
         # qin itu. Suggested training episodes 300 - 1000
-        # for key, cnt in ht_counter.items():
-        #     if key[0] == "萬子": # "萬子", "筒子", "索子"
-        #         reward_extra += 30 * cnt
-        #         self.penalty_A -= 30 * cnt
-        #     else:
-        #         reward_extra -= 30 * cnt
-        #         self.penalty_A += 30 * cnt
+        for key, cnt in ht_counter.items():
+            if key[0] == "萬子": # "萬子", "筒子", "索子"
+                reward_extra += 30 * cnt
+                self.penalty_A -= 30 * cnt
+            else:
+                reward_extra -= 30 * cnt
+                self.penalty_A += 30 * cnt
 
 
         # Chyanta. Suggested training episodes 300 - 1000
@@ -585,7 +617,7 @@ class MahjongEnvironment:
                     self.agent_after_pon = True
 
                     if not self.is_test_environment:
-                        reward += self._agent_extra_reward(self.手牌)
+                        reward += self._agent_extra_reward(self.手牌, discarded_tile, None)
                     self.score += reward
 
                     return self._get_state_unified(discarded_tile), reward, done, {"score": self.score, "turn": self.turn,
@@ -663,7 +695,7 @@ class MahjongEnvironment:
                         self.agent_after_pon = True  # Reuse the same flag for simplicity
 
                         if not self.is_test_environment:
-                            reward += self._agent_extra_reward(self.手牌)
+                            reward += self._agent_extra_reward(self.手牌, None, discarded_tile)
                         self.score += reward
 
                         return self._get_state_unified(discarded_tile), reward, done, {"score": self.score, "turn": self.turn,
@@ -817,7 +849,8 @@ class DQNAgent:
     EPISODIC_MEMORY_REPLAY_FREQ = 500
     SUCCESS_REWARD_THRESHOLD = 3000
 
-    def __init__(self, state_size: int, action_size: int, device: str = "cpu"):
+    def __init__(self, state_size: int, action_size: int, device: str = "cpu",
+                 epsilon: float = 1.0, epsilon_min : float = 0.01, epsilon_decay: float = 0.998):
         self.state_size = state_size
         self.action_size = action_size
         self.device = torch.device(device)
@@ -827,9 +860,9 @@ class DQNAgent:
         self.current_episode_transitions = []
 
         self.gamma = 0.99
-        self.epsilon = 1.0
-        self.epsilon_min = 0.01
-        self.epsilon_decay = 0.998
+        self.epsilon = epsilon
+        self.epsilon_min = epsilon_min
+        self.epsilon_decay = epsilon_decay
         self.learning_rate = 1e-3
 
         self.model = NewDQN(state_size, action_size).to(self.device)
@@ -1024,9 +1057,10 @@ class DQNAgent:
 
 def train_agent(episodes: int = 2999, name: str = "agent",
                 device: str = "cuda", save_every_this_ep: int = 1000,
-                save_after_this_ep: int = 900) -> DQNAgent:
+                save_after_this_ep: int = 900,
+                e = 1.0, em = 0.01, ed = 0.998) -> DQNAgent:
     env = MahjongEnvironment()
-    agent = DQNAgent(92, 17, device=device)
+    agent = DQNAgent(92, 17, device=device, epsilon=e, epsilon_min=em, epsilon_decay=ed)
     assert save_every_this_ep >= 99, "Reasonable saving interval must be no less than 99."
     log_save_path = f"./log/train_{name}.csv"
 
@@ -1207,7 +1241,7 @@ def test_agent(episodes: int, model_path: str, device: str = "cpu", target_yaku:
                 if (ep + 1) % 500 == 0:
                     print(f"[TEST] Episode {ep+1}/{episodes} completed. "
                          f"Avg score: {total_score/(ep+1):.2f}, "
-                         f"Agari rate: {current_agari_rate:.2f}%"
+                         f"Agari rate: {current_agari_rate:.2f}% "
                          f"Target Yaku Complete: {target_yaku_cnt} times."
                          )
                 break
@@ -1220,7 +1254,15 @@ def test_agent(episodes: int, model_path: str, device: str = "cpu", target_yaku:
     return total_score/episodes, agari/episodes*100, target_yaku_cnt
 
 
-def test_all_agent_candidates(episodes: int, device: str = "cpu", target_yaku: str = "None", delete_poor: bool = True) -> None:
+def test_all_agent_candidates(episodes: int, device: str = "cpu", target_yaku: str = "None", delete_poor: bool = True, 
+                              performance_method : int = 0) -> None:
+    """
+    performance_method: 0: avg_score * agari_rate, 1: agari_rate, 2: target yaku complete count.
+    """
+    
+    if target_yaku == "None" and performance_method == 2:
+        raise Exception
+
     agent_dir = "./DQN_agents_candidates/"
     formal_agent_dir = "./DQN_agents/"
     agent_files = [f for f in os.listdir(agent_dir) if f.endswith(".pth")]
@@ -1236,9 +1278,14 @@ def test_all_agent_candidates(episodes: int, device: str = "cpu", target_yaku: s
         avg_score, agari_rate, tkc = test_agent(episodes, f"{agent_dir}{f}", device, target_yaku)
         
         # Calculate a combined performance metric (you can adjust this formula)
-        # performance = avg_score * agari_rate
-        # performance = agari_rate
-        performance = tkc
+        if performance_method == 0:
+            performance = avg_score * agari_rate
+        elif performance_method == 1:
+            performance = agari_rate
+        elif performance_method == 2:
+            performance = tkc
+        else:
+            raise Exception
         results.append((f, avg_score, agari_rate, performance))
         
         # Update best agent if current one performs better
@@ -1254,7 +1301,8 @@ def test_all_agent_candidates(episodes: int, device: str = "cpu", target_yaku: s
         print(f"\n[BEST AGENT] {best_agent_file}")
         print(f"Average score: {results[results.index((best_agent_file, *[r for r in results if r[0] == best_agent_file][0][1:]))][1]:.2f}")
         print(f"Agari rate: {results[results.index((best_agent_file, *[r for r in results if r[0] == best_agent_file][0][1:]))][2]:.3f}%")
-        
+        print(f"Performance: {results[results.index((best_agent_file, *[r for r in results if r[0] == best_agent_file][0][1:]))][3]:.3f}.")
+
         # Delete all agents except the best one
         for f in agent_files:
             file_path = f"{agent_dir}{f}"
@@ -1292,9 +1340,11 @@ def test_all_agents(episodes: int, device: str = "cpu") -> None:
 
 
 def train_and_test_pipeline():
-    agent_name = "AI_混全帯么九_900"
-    train_agent(999, name=agent_name, device="cuda", save_every_this_ep=100, save_after_this_ep=50)
-    test_all_agent_candidates(500, "cuda", target_yaku="混全帯么九")
+    agent_name = "AI_清一色"
+    for ab in "A":
+        train_agent(299, name=agent_name + ab, device="cuda", save_every_this_ep=100, save_after_this_ep=50,
+                    e=0.5, em=0.5)
+        test_all_agent_candidates(500, "cuda", target_yaku="清一色", performance_method=2)
 
 
 if __name__ == "__main__":
