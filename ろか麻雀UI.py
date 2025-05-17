@@ -12,7 +12,7 @@ from typing import List, Dict, Tuple, Optional
 
 import torch
 from ろかAI_v4 import DQNAgent
-from ろか麻雀 import calculate_weighted_preference_score, nicely_print_tiles, 基礎訓練山を作成する, 山を作成する, 点数計算, 聴牌ですか, 麻雀牌
+from ろか麻雀 import calculate_weighted_preference_score, nicely_print_tiles, 山を作成する, 点数計算, 聴牌ですか, 麻雀牌
 
 
 
@@ -103,23 +103,6 @@ class Env:
     # Methods for RL agent
     # ==========================
 
-
-    # def get_valid_actions(self, extra_tile_idx: int, tenpai: bool=False) -> list[int]:
-    #     if self.current_actor == 1: # Opponent
-    #         # 行動：牌を捨てる
-    #         # 聴牌の時、もらった牌を捨てるだけにしとこう
-    #         if tenpai and extra_tile_idx >= 0:
-    #             return [extra_tile_idx]
-    #         hand_tiles = [self._tile_to_index(t) for t in self.opponent_hand if not t.副露]
-    #         if extra_tile_idx >= 0:
-    #             hand_tiles.append(extra_tile_idx)
-    #         hand_tiles = sorted(set(hand_tiles))
-    #         return hand_tiles
-    #     else:
-    #         # 行動：何もしない・ポン・チー
-    #         # 14, 15, 16
-    #         return [14, 15, 16]
-
     def _get_canonical_id(self, tile: 麻雀牌) -> int:
         """Still useful for comparing tiles or other internal logic."""
         if tile is None: return -1
@@ -146,7 +129,7 @@ class Env:
         return self._get_canonical_id(tile1) == self._get_canonical_id(tile2)
 
 
-    def _get_tile_base_properties(self, tile: 麻雀牌, is_explicitly_exposed: bool = None) -> tuple:
+    def _get_tile_base_properties(self, tile: 麻雀牌 | None) -> tuple:
         """
         Extracts base properties (excluding local group ID).
         Returns: (suit_cat, number, is_exposed, is_honor, honor_id_val)
@@ -165,15 +148,43 @@ class Env:
             honor_id_val = self.HONOR_ID_MAPPING.get(suit_val, 0)
             num_val = 0
 
-        is_exposed_val = int(is_explicitly_exposed) if is_explicitly_exposed is not None else int(tile.副露)
+        is_exposed_val = tile.get_exposed_status()
         return (suit_cat, num_val, is_exposed_val, is_honor_val, honor_id_val)
 
 
-    def _get_state_unified(self, last_tile: 麻雀牌 = None) -> np.ndarray:
+    def _get_state_unified(self, last_tile: 麻雀牌 | None = None) -> np.ndarray:
         actual_hand_tiles = sorted(
             [tile for tile in self.opponent_hand if tile is not None],
             key=lambda t: self._get_canonical_id(t)
         )
+
+        # Calculate tile relationships for 順子 detection
+        tile_relationships = [0]  # First tile has no previous tile to compare
+        for i in range(1, len(actual_hand_tiles)):
+            current_tile = actual_hand_tiles[i]
+            prev_tile = actual_hand_tiles[i-1]
+            
+            # Get properties for comparison
+            current_suit, current_num = current_tile.何者, current_tile.その上の数字
+            prev_suit, prev_num = prev_tile.何者, prev_tile.その上の数字
+            
+            # Default relationship: no relation
+            relationship = 0
+            
+            # Check if same suit/honor category
+            if current_suit == prev_suit:
+                if current_num == prev_num:
+                    # Same tile type (helps with 刻子 detection)
+                    relationship = 1
+                elif abs(current_num - prev_num) == 1:
+                    # Sequential tiles (helps with 順子 detection)
+                    relationship = 2
+            
+            tile_relationships.append(relationship)
+        
+        # Pad relationships to match hand size
+        while len(tile_relationships) < self.AGENT_HAND_SIZE:
+            tile_relationships.append(0)
 
         hand_local_group_ids = []
         canonical_to_group_map = {}
@@ -195,51 +206,91 @@ class Env:
             if i < len(actual_hand_tiles): # Use actual_hand_tiles here
                 tile = actual_hand_tiles[i]
                 local_id = hand_local_group_ids[i]
+                relationship_code = tile_relationships[i]  # Add the relationship code
                 base_props = self._get_tile_base_properties(tile)
-                hand_features_list.extend([local_id, *base_props])
+                hand_features_list.extend([local_id, relationship_code, *base_props])
             else: 
-                padding_local_id = -1 
+                padding_local_id = -1
+                relationship_code = 0 
                 base_props_padding = self._get_tile_base_properties(None)
-                hand_features_list.extend([padding_local_id, *base_props_padding])
+                hand_features_list.extend([padding_local_id, relationship_code, *base_props_padding])
         
         hand_tiles_state = np.array(hand_features_list, dtype=np.float32)
 
         # --- Last Tile Encoding ---
         last_tile_local_id = -1 # Default for padding 
-        base_props_last_tile = self._get_tile_base_properties(last_tile, is_explicitly_exposed=False)
+        last_tile_relationship = 0  # Default relationship for last tile
+        base_props_last_tile = self._get_tile_base_properties(last_tile)
 
         if last_tile is not None:
             last_tile_cano_id = self._get_canonical_id(last_tile)
             if last_tile_cano_id in canonical_to_group_map:
                 last_tile_local_id = canonical_to_group_map[last_tile_cano_id]
             else:
-                # If hand was empty, max_local_id_in_hand is -1, so new ID is 0.
-                # Otherwise, it's the next ID after existing hand groups.
                 last_tile_local_id = max_local_id_in_hand + 1
+            
+            # Check relationship with ANY tile in the hand
+            has_same_tile = False
+            has_sequential_tile = False
+            
+            if actual_hand_tiles:
+                last_suit, last_num = last_tile.何者, last_tile.その上の数字
+                
+                for hand_tile in actual_hand_tiles:
+                    hand_suit, hand_num = hand_tile.何者, hand_tile.その上の数字
+                    
+                    if last_suit == hand_suit:
+                        if last_num == hand_num:
+                            has_same_tile = True
+                        elif abs(last_num - hand_num) == 1:
+                            has_sequential_tile = True
+                    
+                    # If we already found both relationships, we can stop checking
+                    if has_same_tile and has_sequential_tile:
+                        break
+            
+            # Encode relationship as:
+            # 0: No relationship
+            # 1: Same tile exists
+            # 2: Sequential tile exists
+            # 3: Both relationships exist
+            if has_same_tile and has_sequential_tile:
+                last_tile_relationship = 3
+            elif has_same_tile:
+                last_tile_relationship = 1
+            elif has_sequential_tile:
+                last_tile_relationship = 2
         
-        last_tile_state_list = [last_tile_local_id, *base_props_last_tile]
+        last_tile_state_list = [last_tile_local_id, last_tile_relationship, *base_props_last_tile]
         last_tile_state = np.array(last_tile_state_list, dtype=np.float32)
         
+        # --- Seat Encoding ---
         seat_state = np.zeros(4, dtype=np.float32)
         seat_state[self.opponent_seat] = 1.0
         
-        # --- Current Actor Encoding ---
-        # NOTE: Reversed from AI_v4
         actor_state = np.zeros(4, dtype=np.float32)
         if self.current_actor == 1:
             actor_state[0] = 1.0
         else:
             actor_state[1] = 1.0
 
+        # state size calculation:
+        # (AGENT_HAND_SIZE) * (1 local ID + 1 relationship + 5 base props) -> 13 * 7 = 91 (for hand slots)
+        # + 1 * (1 local ID + 1 relationship + 5 base props)                -> 1 * 7 = 7  (for last tile slot)
+        # + 4                                                               -> 4          (for seat)
+        # + 4                                                               -> 4          (for actor)
+        # Total: 91 + 7 + 4 + 4 = 106
+
         return np.concatenate([
-            hand_tiles_state,  # (AGENT_HAND_SIZE) * 6 features
-            last_tile_state,   # 1 * 6 features
+            hand_tiles_state,  # (AGENT_HAND_SIZE) * 7 features
+            last_tile_state,   # 1 * 7 features
             seat_state,        # 4 features
             actor_state        # 4 features
         ])
 
 
-    def get_valid_actions(self, last_tile: 麻雀牌 = None, tenpai: bool = False) -> list[int]:
+
+    def get_valid_actions(self, last_tile: 麻雀牌 | None = None, tenpai: bool = False) -> list[int]:
         """
         Generates a list of valid action IDs.
         For agent's turn (discard): action IDs are local group IDs of discardable tiles.
@@ -359,10 +410,10 @@ if __name__ == "__main__":
         print(f"Error loading icon: {e}")
 
     try:
-        dqn_agent = DQNAgent(92, 17, device="cuda")
+        dqn_agent = DQNAgent(106, 17, device="cuda")
     except Exception:
         print("Cuda Device not found, using cpu version.")
-        dqn_agent = DQNAgent(92, 17, device="cpu")
+        dqn_agent = DQNAgent(106, 17, device="cpu")
 
     dqn_agent.epsilon = 0
 
@@ -601,11 +652,13 @@ if __name__ == "__main__":
             s.set_tooltip("", delay=0.1)
         player_can_call = False
 
-        assert last_tile_discarded_by_player.副露 == False
+        if last_tile_discarded_by_player:
+            assert last_tile_discarded_by_player.副露 == False
 
         # Opponent Ron
         temp_opponent_hand = env.opponent_hand.copy()
-        temp_opponent_hand.append(last_tile_discarded_by_player)
+        if last_tile_discarded_by_player:
+            temp_opponent_hand.append(last_tile_discarded_by_player)
         a0, b0, c0 = 点数計算(temp_opponent_hand, env.opponent_seat)
         if c0:
             # opponent win by ron
@@ -637,15 +690,15 @@ if __name__ == "__main__":
             same_tile_count = 0
             same_tiles = []
             for i, tile in enumerate(env.opponent_hand):
-                if (tile.何者, tile.その上の数字) == (last_tile_discarded_by_player.何者, last_tile_discarded_by_player.その上の数字) and not tile.副露:
-                    same_tile_count += 1
-                    same_tiles.append(i)
+                if last_tile_discarded_by_player:
+                    if (tile.何者, tile.その上の数字) == (last_tile_discarded_by_player.何者, last_tile_discarded_by_player.その上の数字) and not tile.副露:
+                        same_tile_count += 1
+                        same_tiles.append(i)
             if same_tile_count >= 2:
                 # can pon
                 valid_actions: list = env.get_valid_actions(last_tile_discarded_by_player)
                 valid_actions.remove(16)
                 assert 14 in valid_actions and 15 in valid_actions
-                action: int
                 action, full_dict = dqn_agent.act(env._get_state_unified(last_tile_discarded_by_player), valid_actions)
                 if action == 15:
                     game_state_text_box.append_html_text(f"{env.opponent_name}: ポン！\n")
@@ -654,8 +707,9 @@ if __name__ == "__main__":
                         env.opponent_hand[i].mark_as_exposed("pon")
                     
                     # Add the discarded tile to agent's hand and mark it as 副露
-                    last_tile_discarded_by_player.mark_as_exposed("pon")
-                    env.opponent_hand.append(last_tile_discarded_by_player)
+                    if last_tile_discarded_by_player:
+                        last_tile_discarded_by_player.mark_as_exposed("pon")
+                        env.opponent_hand.append(last_tile_discarded_by_player)
                     last_tile_discarded_by_player = None
                     
                     # Remove the discarded tile from the discard pile
@@ -696,7 +750,6 @@ if __name__ == "__main__":
                     valid_actions: list = env.get_valid_actions(last_tile_discarded_by_player)
                     valid_actions.remove(15)
                     assert 14 in valid_actions and 16 in valid_actions, "14 do nothing 15 pon 16 chii"
-                    action: int
                     action, full_dict = dqn_agent.act(env._get_state_unified(last_tile_discarded_by_player), valid_actions)
                     if action == 16:
                         game_state_text_box.append_html_text(f"{env.opponent_name}: チー！\n")
@@ -914,59 +967,61 @@ if __name__ == "__main__":
 
 
     def player_pon():
-        for t in env.player_hand:
-            if (t.何者, t.その上の数字) == (last_tile_discarded_by_opponent.何者, last_tile_discarded_by_opponent.その上の数字) and not t.副露:
-                t.mark_as_exposed("pon")
-                break
-        for t in env.player_hand:
-            if (t.何者, t.その上の数字) == (last_tile_discarded_by_opponent.何者, last_tile_discarded_by_opponent.その上の数字) and not t.副露:
-                t.mark_as_exposed("pon")
-                break
+        if last_tile_discarded_by_opponent:
+            for t in env.player_hand:
+                if (t.何者, t.その上の数字) == (last_tile_discarded_by_opponent.何者, last_tile_discarded_by_opponent.その上の数字) and not t.副露:
+                    t.mark_as_exposed("pon")
+                    break
+            for t in env.player_hand:
+                if (t.何者, t.その上の数字) == (last_tile_discarded_by_opponent.何者, last_tile_discarded_by_opponent.その上の数字) and not t.副露:
+                    t.mark_as_exposed("pon")
+                    break
 
-        game_state_text_box.append_html_text(f"{env.player_name}: ポン！\n")
-        last_tile_discarded_by_opponent.mark_as_exposed("pon")
-        env.player_hand.append(last_tile_discarded_by_opponent)
-        env.discard_pile_opponent.pop()
+            game_state_text_box.append_html_text(f"{env.player_name}: ポン！\n")
+            last_tile_discarded_by_opponent.mark_as_exposed("pon")
+            env.player_hand.append(last_tile_discarded_by_opponent)
+            env.discard_pile_opponent.pop()
 
-        env.current_actor = 0
-        button_tsumo.hide()
-        button_chii.hide()
-        button_pon.hide()
-        button_ron.hide()
-        button_pass.hide()
-        draw_ui_player_hand()
-        player_check_discard_what_to_tenpai()
-        draw_ui_opponent_hand()
-        draw_ui_player_discarded_tiles()
-        draw_ui_opponent_discarded_tiles()
+            env.current_actor = 0
+            button_tsumo.hide()
+            button_chii.hide()
+            button_pon.hide()
+            button_ron.hide()
+            button_pass.hide()
+            draw_ui_player_hand()
+            player_check_discard_what_to_tenpai()
+            draw_ui_opponent_hand()
+            draw_ui_player_discarded_tiles()
+            draw_ui_opponent_discarded_tiles()
 
 
     def player_chii():
-        for t in env.player_hand:
-            if (t.何者, t.その上の数字) == (player_chii_tiles[0].何者, player_chii_tiles[0].その上の数字) and not t.副露:
-                t.mark_as_exposed("chii")
-                break
-        for t in env.player_hand:
-            if (t.何者, t.その上の数字) == (player_chii_tiles[1].何者, player_chii_tiles[1].その上の数字) and not t.副露:
-                t.mark_as_exposed("chii")
-                break
+        if last_tile_discarded_by_opponent:
+            for t in env.player_hand:
+                if (t.何者, t.その上の数字) == (player_chii_tiles[0].何者, player_chii_tiles[0].その上の数字) and not t.副露:
+                    t.mark_as_exposed("chii")
+                    break
+            for t in env.player_hand:
+                if (t.何者, t.その上の数字) == (player_chii_tiles[1].何者, player_chii_tiles[1].その上の数字) and not t.副露:
+                    t.mark_as_exposed("chii")
+                    break
 
-        game_state_text_box.append_html_text(f"{env.player_name}: チー！\n")
-        last_tile_discarded_by_opponent.mark_as_exposed("chii")
-        env.player_hand.append(last_tile_discarded_by_opponent)
-        env.discard_pile_opponent.pop()
+            game_state_text_box.append_html_text(f"{env.player_name}: チー！\n")
+            last_tile_discarded_by_opponent.mark_as_exposed("chii")
+            env.player_hand.append(last_tile_discarded_by_opponent)
+            env.discard_pile_opponent.pop()
 
-        env.current_actor = 0
-        button_tsumo.hide()
-        button_chii.hide()
-        button_pon.hide()
-        button_ron.hide()
-        button_pass.hide()
-        draw_ui_player_hand()
-        player_check_discard_what_to_tenpai()
-        draw_ui_opponent_hand()
-        draw_ui_player_discarded_tiles()
-        draw_ui_opponent_discarded_tiles()
+            env.current_actor = 0
+            button_tsumo.hide()
+            button_chii.hide()
+            button_pon.hide()
+            button_ron.hide()
+            button_pass.hide()
+            draw_ui_player_hand()
+            player_check_discard_what_to_tenpai()
+            draw_ui_opponent_hand()
+            draw_ui_player_discarded_tiles()
+            draw_ui_opponent_discarded_tiles()
 
 
 
