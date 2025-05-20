@@ -1667,6 +1667,31 @@ def 三色通貫(tiles: list[麻雀牌]) -> bool:
 # print(三色通貫(手牌))
 
 
+def 鏡同和(tiles: list[麻雀牌]) -> bool:
+    """
+    m1 m2 m3 m5 m5 m5 s1 s2 s3 s5 s5 s5 + 2east
+    """
+    suits = ("萬子", "筒子", "索子")
+    for suit_order in permutations(suits):
+        l = [t.その上の数字 for t in tiles if t.何者 == suit_order[0]]
+        r = [t.その上の数字 for t in tiles if t.何者 == suit_order[1]]
+        if l == r:
+            return True
+    return False
+
+
+# 手牌 = [
+#     麻雀牌("萬子", 1, False), 麻雀牌("萬子", 2, False), 麻雀牌("萬子", 3, False),  
+#     麻雀牌("索子", 1, False), 麻雀牌("索子", 2, False), 麻雀牌("索子", 3, False),  
+#     麻雀牌("萬子", 4, False), 麻雀牌("萬子", 5, False), 麻雀牌("萬子", 6, False), 
+#     麻雀牌("索子", 4, False), 麻雀牌("索子", 5, False), 麻雀牌("索子", 6, False),  
+#     麻雀牌("筒子", 9, False),
+#     麻雀牌("筒子", 9, False) 
+# ]
+# 手牌.sort(key=lambda x: (x.sort_order, x.その上の数字))
+# print(鏡同和(手牌))
+
+
 def 七対子(tiles: list[麻雀牌]) -> bool:
     for t in tiles:
         if t.副露:
@@ -1854,6 +1879,10 @@ def 点数計算(tiles: list[麻雀牌], seat: int) -> tuple[int, list[str], boo
             score += 6000
             yaku.append("三色通貫")
             win = True
+        if 鏡同和(tiles):
+            score += 6000
+            yaku.append("鏡同和")
+            win = True
         if 小三元(tiles):
             score += 6000
             yaku.append("小三元")
@@ -1965,6 +1994,9 @@ def 点数計算(tiles: list[麻雀牌], seat: int) -> tuple[int, list[str], boo
         if 混老頭(tiles):
             score += 6000
             yaku.append("混老頭")
+        if 鏡同和(tiles):
+            score += 6000
+            yaku.append("鏡同和")
         if 清老頭(tiles):
             score += 32000
             yaku.append("清老頭")

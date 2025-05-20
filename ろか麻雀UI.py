@@ -825,13 +825,12 @@ if __name__ == "__main__":
 
         valid_actions: list = env.get_valid_actions(new_tile, tenpai=hiruchaaru_is_tenpai)
         assert len(valid_actions) > 0
-        action: int
         action, full_dict = dqn_agent.act(env._get_state_unified(new_tile), valid_actions)
         # print(f"Opponent action: {action}")
         # print(env._index_to_tile_type(action))discarded_tile
         # print(tile_type) # ('筒子', 5)
         assert 0 <= action <= 13
-        tile_type = env.map_action_lgid_to_canonical_id(action)
+        tile_type = env.map_action_lgid_to_canonical_id(int(action))
         discarded_tile = None
         for t in [t for t in env.opponent_hand if not t.副露]:
             if env._get_canonical_id(t) == tile_type:

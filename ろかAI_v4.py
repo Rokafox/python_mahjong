@@ -338,40 +338,40 @@ class MahjongEnvironment:
 
 
 
-    def _agent_extra_reward(self, 手牌: list[麻雀牌], naki_tile_pon: 麻雀牌 | None = None,
+    def _agent_extra_reward(self, hand_tiles: list[麻雀牌], naki_tile_pon: 麻雀牌 | None = None,
                             naki_tile_chii: 麻雀牌 | None = None) -> int:
         reward_extra = 0
 
         # 聴牌の場合、大量の報酬を与える
-        if self.is_tenpai:
-            reward_extra += 300
-            self.total_tennpai += 1
+        # if self.is_tenpai:
+        #     reward_extra += 300
+        #     self.total_tennpai += 1
         
-        mz_score = int(面子スコア(self.手牌) * 6)
-        self.mz_score += mz_score
-        reward_extra += mz_score
+        # mz_score = int(面子スコア(hand_tiles) * 6)
+        # self.mz_score += mz_score
+        # reward_extra += mz_score
 
-        tuiz_score = int(刻子スコア(self.手牌) * 3)
-        self.tuiz_score += tuiz_score
-        reward_extra += tuiz_score
-
-        tatsu_score = int(順子スコア(self.手牌) * 3)
-        self.tatsu_score += tatsu_score
-        reward_extra += tatsu_score
-
-        # tuiz_score = int(刻子スコア(self.手牌, allowed_num=[1, 9, 0], score_table=[0, 1, 2, 3, 4]) * 4)
+        # tuiz_score = int(刻子スコア(hand_tiles) * 3)
         # self.tuiz_score += tuiz_score
         # reward_extra += tuiz_score
 
-        # tatsu_score = int(順子スコア(self.手牌, allowed_sequences=[[1, 2, 3], [7, 8, 9]], score_table=[0, 1, 2, 3, 4]) * 4)
+        # tatsu_score = int(順子スコア(hand_tiles) * 3)
         # self.tatsu_score += tatsu_score
         # reward_extra += tatsu_score
 
-        # tuiz_score += int(対子スコア(self.手牌) * 8)
+        # tuiz_score = int(刻子スコア(hand_tiles, allowed_num=[1, 9, 0], score_table=[0, 1, 2, 3, 4]) * 4)
         # self.tuiz_score += tuiz_score
         # reward_extra += tuiz_score
 
-        ht_counter = Counter((t.何者, t.その上の数字) for t in self.手牌)
+        # tatsu_score = int(順子スコア(hand_tiles, allowed_sequences=[[1, 2, 3], [7, 8, 9]], score_table=[0, 1, 2, 3, 4]) * 4)
+        # self.tatsu_score += tatsu_score
+        # reward_extra += tatsu_score
+
+        # tuiz_score += int(対子スコア(hand_tiles) * 8)
+        # self.tuiz_score += tuiz_score
+        # reward_extra += tuiz_score
+
+        ht_counter = Counter((t.何者, t.その上の数字) for t in hand_tiles)
 
         # CW: 599, e=0.5, em=0.5
         # for key, cnt in ht_counter.items():
@@ -401,36 +401,36 @@ class MahjongEnvironment:
 
         # 3CSS: 599, e=0.5, em=0.5
         # 3CSS1: 1999, e=0.1, em=0.1
-        for key, cnt in ht_counter.items():
-            if key[1] in [3, 4, 5]:
-                reward_extra += 30 * cnt
-                self.penalty_A -= 30 * cnt
-            if key[1] in [0]:
-                reward_extra += 10 * cnt
-                self.penalty_A -= 10 * cnt
-            else:
-                reward_extra -= 30 * cnt
-                self.penalty_A += 30 * cnt
-        if naki_tile_chii:
-            if naki_tile_chii.その上の数字 in [4]:
-                reward_extra += 500
-                self.penalty_A -= 500
-            else:
-                reward_extra -= 500
-                self.penalty_A += 500
-        if naki_tile_pon:
-            if naki_tile_pon.その上の数字 in [3, 4, 5]:
-                reward_extra += 500
-                self.penalty_A -= 500
-            elif naki_tile_pon.その上の数字 in [0]:
-                reward_extra += 100
-                self.penalty_A -= 100
-            else:
-                reward_extra -= 500
-                self.penalty_A += 500
+        # for key, cnt in ht_counter.items():
+        #     if key[1] in [3, 4, 5]:
+        #         reward_extra += 30 * cnt
+        #         self.penalty_A -= 30 * cnt
+        #     if key[1] in [0]:
+        #         reward_extra += 10 * cnt
+        #         self.penalty_A -= 10 * cnt
+        #     else:
+        #         reward_extra -= 30 * cnt
+        #         self.penalty_A += 30 * cnt
+        # if naki_tile_chii:
+        #     if naki_tile_chii.その上の数字 in [4]:
+        #         reward_extra += 500
+        #         self.penalty_A -= 500
+        #     else:
+        #         reward_extra -= 500
+        #         self.penalty_A += 500
+        # if naki_tile_pon:
+        #     if naki_tile_pon.その上の数字 in [3, 4, 5]:
+        #         reward_extra += 500
+        #         self.penalty_A -= 500
+        #     elif naki_tile_pon.その上の数字 in [0]:
+        #         reward_extra += 100
+        #         self.penalty_A -= 100
+        #     else:
+        #         reward_extra -= 500
+        #         self.penalty_A += 500
 
         # present_categories = set()
-        # for tile in 手牌:
+        # for tile in hand_tiles:
         #     if "四風牌" in tile.固有状態:
         #         present_categories.add("四風牌")
         #     elif "三元牌" in tile.固有状態:
@@ -440,15 +440,15 @@ class MahjongEnvironment:
         # 五門_counter = len(present_categories)
         # assert 1 <= 五門_counter <= 5
         # if 五門_counter == 1:
-        #     reward_extra += 5
-        # elif 五門_counter == 2:
-        #     reward_extra += 2
-        # elif 五門_counter == 3:
-        #     reward_extra -= 2
-        # elif 五門_counter == 4:
         #     reward_extra -= 5
+        # elif 五門_counter == 2:
+        #     reward_extra -= 2
+        # elif 五門_counter == 3:
+        #     reward_extra += 2
+        # elif 五門_counter == 4:
+        #     reward_extra += 5
         # elif 五門_counter == 5:
-        #     reward_extra -= 10
+        #     reward_extra += 10
         # else:
         #     raise Exception
 
@@ -1369,10 +1369,10 @@ def test_all_agents(episodes: int, device: str = "cpu") -> None:
 
 
 def train_and_test_pipeline():
-    agent_name = "3CSS1_"
-    for ab in "qw":
-        train_agent(1999, name=agent_name + ab, device="cuda", save_every_this_ep=200, save_after_this_ep=150,
-                    e=0.1, em=0.1)
+    agent_name = "RZ_"
+    for ab in "q":
+        train_agent(19999, name=agent_name + ab, device="cuda", save_every_this_ep=200, save_after_this_ep=999,
+                    e=0.01, em=0.01)
         test_all_agent_candidates(500, "cuda", target_yaku="None", performance_method=0)
 
 
