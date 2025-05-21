@@ -2022,6 +2022,107 @@ def 点数計算(tiles: list[麻雀牌], seat: int) -> tuple[int, list[str], boo
     return score, yaku, win
 
 
+# def 点数計算B(tiles: list[麻雀牌], seat: int) -> tuple[int, list[str], bool]:
+#     """
+#     seat: 0:東 1:南 2:西 3:北
+#     return: (score, yaku, win)
+#     """
+#     if len(tiles) != 14:
+#         raise ValueError(f"手牌は 14 枚である必要があります: 今{len(tiles)}枚。")
+#     tiles.sort(key=lambda x: (x.sort_order, x.その上の数字))
+#     tiles_counter = Counter((t.何者, t.その上の数字) for t in tiles)
+#     score = 0
+#     yaku = []
+#     win = False
+
+#     if 上がり形(tiles):
+
+#         if seat == 0 and 東(tiles_counter):
+#             score += 1000
+#             yaku.append("東")
+#         elif seat == 1 and 南(tiles_counter):
+#             score += 1000
+#             yaku.append("南")
+#         elif seat == 2 and 西(tiles_counter):
+#             score += 1000
+#             yaku.append("西")
+#         elif seat == 3 and 北(tiles_counter):
+#             score += 1000
+#             yaku.append("北")
+
+#         if 発(tiles_counter):
+#             score += 1000
+#             yaku.append("發")
+#         if 中(tiles_counter):
+#             score += 1000
+#             yaku.append("中")
+#         if 白(tiles_counter):
+#             score += 1000
+#             yaku.append("白")
+
+#         if 赤ドラの数(tiles) > 0:
+#             score += 1000 * 赤ドラの数(tiles)
+#             yaku.append(f"赤ドラ{赤ドラの数(tiles)}")
+
+#         if 二槓子(tiles):
+#             score += 3000
+#             yaku.append("二槓子")
+#         if 三槓子(tiles):
+#             score += 6000
+#             yaku.append("三槓子")
+
+
+#         if 断么九(tiles):
+#             score += 1000
+#             yaku.append("断么九")
+#         if 平和(tiles):
+#             score += 1000
+#             yaku.append("平和")
+
+#         if 一盃口(tiles):
+#             score += 3000
+#             yaku.append("一盃口")
+#             win = True
+#         if 二盃口(tiles):
+#             score += 6000
+#             yaku.append("二盃口")
+#             win = True
+#         if 三色同順(tiles):
+#             score += 6000
+#             yaku.append("三色同順")
+#             win = True
+#         if 三色三步(tiles):
+#             score += 6000
+#             yaku.append("三色三步")
+#             win = True
+#         if 一気通貫(tiles):
+#             score += 3000
+#             yaku.append("一気通貫")
+#             win = True
+#         if 三色通貫(tiles):
+#             score += 6000
+#             yaku.append("三色通貫")
+#             win = True
+#         if 鏡同和(tiles):
+#             score += 6000
+#             yaku.append("鏡同和")
+#             win = True
+#         if 三連刻(tiles):
+#             score += 3000
+#             yaku.append("三連刻")
+#             win = True
+#         if 三色連刻(tiles):
+#             score += 32000
+#             yaku.append("三色連刻")
+#             win = True
+#         if 三色同刻(tiles):
+#             score += 32000
+#             yaku.append("三色同刻")
+#             win = True
+
+#     return score, yaku, win
+
+
 
 def 聴牌ですか(tiles: list[麻雀牌], seat: int) -> tuple[bool, list[麻雀牌]]:
     """

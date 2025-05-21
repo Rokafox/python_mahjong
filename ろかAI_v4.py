@@ -373,6 +373,8 @@ class MahjongEnvironment:
 
         ht_counter = Counter((t.何者, t.その上の数字) for t in hand_tiles)
 
+        # RZ: 4999, e=0.001, em=0.001 No score bonus
+
         # CW: 599, e=0.5, em=0.5
         # for key, cnt in ht_counter.items():
         #     if key[0] == "索子": # "萬子", "筒子", "索子"
@@ -399,15 +401,14 @@ class MahjongEnvironment:
         #         reward_extra -= 500
         #         self.penalty_A += 500
 
-        # 3CSS: 599, e=0.5, em=0.5
-        # 3CSS1: 1999, e=0.1, em=0.1
+        # RZ_3CSS: 5999, e=0.001, em=0.001 No score bonus, Partial Agari
         # for key, cnt in ht_counter.items():
         #     if key[1] in [3, 4, 5]:
         #         reward_extra += 30 * cnt
         #         self.penalty_A -= 30 * cnt
-        #     if key[1] in [0]:
-        #         reward_extra += 10 * cnt
-        #         self.penalty_A -= 10 * cnt
+        #     # if key[1] in [0]:
+        #     #     reward_extra += 10 * cnt
+        #     #     self.penalty_A -= 10 * cnt
         #     else:
         #         reward_extra -= 30 * cnt
         #         self.penalty_A += 30 * cnt
@@ -422,9 +423,9 @@ class MahjongEnvironment:
         #     if naki_tile_pon.その上の数字 in [3, 4, 5]:
         #         reward_extra += 500
         #         self.penalty_A -= 500
-        #     elif naki_tile_pon.その上の数字 in [0]:
-        #         reward_extra += 100
-        #         self.penalty_A -= 100
+        #     # elif naki_tile_pon.その上の数字 in [0]:
+        #     #     reward_extra += 100
+        #     #     self.penalty_A -= 100
         #     else:
         #         reward_extra -= 500
         #         self.penalty_A += 500
@@ -880,7 +881,7 @@ class DQNAgent:
         self.device = torch.device(device)
 
         self.memory = PrioritizedReplayBuffer(capacity=50_000)
-        self.episodic_memory = EpisodicMemory(capacity=1)
+        self.episodic_memory = EpisodicMemory(capacity=3333)
         self.current_episode_transitions = []
 
         self.gamma = 0.99
@@ -1370,15 +1371,15 @@ def test_all_agents(episodes: int, device: str = "cpu") -> None:
 
 def train_and_test_pipeline():
     agent_name = "RZ_"
-    for ab in "q":
-        train_agent(19999, name=agent_name + ab, device="cuda", save_every_this_ep=200, save_after_this_ep=999,
+    for ab in "we":
+        train_agent(4999, name=agent_name + ab, device="cuda", save_every_this_ep=200, save_after_this_ep=299,
                     e=0.001, em=0.001)
         test_all_agent_candidates(500, "cuda", target_yaku="None", performance_method=0)
 
 
 if __name__ == "__main__":
     train_and_test_pipeline()
-    # test_all_agent_candidates(500, "cuda", delete_poor=False, performance_method=1)
-    # test_all_agents(1000, 'cuda')
+    # test_all_agent_candidates(500, "cuda", delete_poor=True, performance_method=0)
+    # test_all_agents(500, 'cuda')
     # test_agent(episodes=500, model_path=f"./DQN_agents_candidates/LT_3000.pth", device="cuda")
 
