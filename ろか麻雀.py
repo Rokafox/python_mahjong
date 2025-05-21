@@ -1675,7 +1675,7 @@ def 鏡同和(tiles: list[麻雀牌]) -> bool:
     for suit_order in permutations(suits):
         l = [t.その上の数字 for t in tiles if t.何者 == suit_order[0]]
         r = [t.その上の数字 for t in tiles if t.何者 == suit_order[1]]
-        if l == r:
+        if l == r and len(l) > 0:
             return True
     return False
 

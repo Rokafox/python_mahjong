@@ -343,9 +343,9 @@ class MahjongEnvironment:
         reward_extra = 0
 
         # 聴牌の場合、大量の報酬を与える
-        # if self.is_tenpai:
-        #     reward_extra += 300
-        #     self.total_tennpai += 1
+        if self.is_tenpai:
+            reward_extra += 30
+            self.total_tennpai += 1
         
         # mz_score = int(面子スコア(hand_tiles) * 6)
         # self.mz_score += mz_score
@@ -880,7 +880,7 @@ class DQNAgent:
         self.device = torch.device(device)
 
         self.memory = PrioritizedReplayBuffer(capacity=50_000)
-        self.episodic_memory = EpisodicMemory(capacity=3333)
+        self.episodic_memory = EpisodicMemory(capacity=1)
         self.current_episode_transitions = []
 
         self.gamma = 0.99
@@ -1372,7 +1372,7 @@ def train_and_test_pipeline():
     agent_name = "RZ_"
     for ab in "q":
         train_agent(19999, name=agent_name + ab, device="cuda", save_every_this_ep=200, save_after_this_ep=999,
-                    e=0.01, em=0.01)
+                    e=0.001, em=0.001)
         test_all_agent_candidates(500, "cuda", target_yaku="None", performance_method=0)
 
 
