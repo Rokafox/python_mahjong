@@ -1,0 +1,1 @@
+pyinstaller --onefile --add-data "theme_light_yellow.json:." --add-data "theme_light_blue.json:." --add-data "theme_light_pink.json:." --add-data "theme_light_green.json:." --add-data "theme_light_purple.json:." --add-data "theme_light_red.json:." ろか麻雀UI.py

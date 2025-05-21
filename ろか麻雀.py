@@ -1804,7 +1804,7 @@ def 点数計算(tiles: list[麻雀牌], seat: int) -> tuple[int, list[str], boo
             score += 3000
             yaku.append("二槓子")
         if 三槓子(tiles):
-            score += 3000
+            score += 6000
             yaku.append("三槓子")
 
 
@@ -1976,7 +1976,7 @@ def 点数計算(tiles: list[麻雀牌], seat: int) -> tuple[int, list[str], boo
             score += 3000
             yaku.append("二槓子")
         if 三槓子(tiles):
-            score += 3000
+            score += 6000
             yaku.append("三槓子")
 
         if 断么九(tiles):

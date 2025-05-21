@@ -394,9 +394,9 @@ if __name__ == "__main__":
     light_pink = pygame.Color("#fae5eb")
 
     display_surface = pygame.display.set_mode((1600, 900), flags=pygame.SCALED | pygame.RESIZABLE)
-    ui_manager_lower = pygame_gui.UIManager((1600, 900), "./asset/ui_theme/theme_light_purple.json", starting_language='ja')
-    ui_manager = pygame_gui.UIManager((1600, 900), "./asset/ui_theme/theme_light_purple.json", starting_language='ja')
-    ui_manager_overlay = pygame_gui.UIManager((1600, 900), "./asset/ui_theme/theme_light_purple.json", starting_language='ja')
+    ui_manager_lower = pygame_gui.UIManager((1600, 900), "theme_light_purple.json", starting_language='ja')
+    ui_manager = pygame_gui.UIManager((1600, 900), "theme_light_purple.json", starting_language='ja')
+    ui_manager_overlay = pygame_gui.UIManager((1600, 900), "theme_light_purple.json", starting_language='ja')
     # debug_ui_manager = pygame_gui.UIManager((1600, 900), "./asset/ui_theme/theme_light_yellow.json", starting_language='ja')
     # ui_manager.get_theme().load_theme("./asset/ui_theme/theme_light_purple.json")
     # ui_manager.rebuild_all_from_changed_theme_data()
@@ -1074,6 +1074,87 @@ if __name__ == "__main__":
                                                    manager=ui_manager,
                                                    tool_tip_text="Some tool tip text.")
 
+    exit_game_button = pygame_gui.elements.UIButton(relative_rect=pygame.Rect((1260, 85), (100, 50)),
+                                                   text='Exit',
+                                                   manager=ui_manager,
+                                                   tool_tip_text="Some tool tip text.")
+
+    def print_accepted_yaku():
+        global game_state_text_box
+        game_state_text_box.set_text("================\n")
+        s = ""
+        yaku_data_noyaku = {
+            "東": 1000, "南": 1000, "西": 1000, "北": 1000,
+            "發": 1000, "中": 1000, "白": 1000,
+            "赤ドラ": 1000, # This will be adjusted for count
+            "断么九": 1000, "平和": 1000,
+            "二槓子": 3000, "三槓子": 6000,
+        }
+        yaku_data_collection = {
+            "混全帯么九": 3000, "純全帯么九": 6000,
+            "混一色": 3000,"清一色": 6000, "混老頭": 6000, "清老頭": 32000,
+            "字一色|大七星": 32000,
+            "緑一色": 32000, "黒一色": 32000,
+            "五門斉": 3000,
+        }
+        yaku_data_k = {
+            "対々和": 3000, "三色小同刻": 6000, "三色同刻": 32000,
+            "三連刻": 3000, "四連刻": 32000, "三色連刻": 32000,
+            "小三風": 3000, "三風刻": 6000, "客風三刻": 32000,
+            "四喜和": 32000, "小三元": 6000, "大三元": 32000,
+        }
+        yaku_data_k1 = {
+            "三暗刻": 6000, "四暗刻": 32000,
+        }
+        yaku_data_s = {
+            "三色同順": 6000, "三色三步": 6000,
+            "一気通貫": 3000, "三色通貫": 6000, "鏡同和": 6000, 
+        }
+        yaku_data_s1 = {
+            "一盃口": 3000, "二盃口": 6000,
+        }
+        yaku_data_special = {
+            "七対子": 3000,
+            "国士無双": 32000,
+        }
+
+        s += "採用役リスト:\n"
+        s += "無役:\n"
+        for yaku_name, score in yaku_data_noyaku.items():
+            if yaku_name == "赤ドラ":
+                s += f"- {yaku_name}: {score}点/枚\n"
+            else:
+                s += f"- {yaku_name}: {score}点\n"
+        s += "何かを揃える役:\n"
+        for yaku_name, score in yaku_data_collection.items():
+            s += f"- {yaku_name}: {score}点\n"
+        s += "刻子役:\n"
+        for yaku_name, score in yaku_data_k.items():
+            s += f"- {yaku_name}: {score}点\n"
+        s += "鳴き不可刻子役:\n"
+        for yaku_name, score in yaku_data_k1.items():
+            s += f"- {yaku_name}: {score}点\n"
+        s += "順子役:\n"
+        for yaku_name, score in yaku_data_s.items():
+            s += f"- {yaku_name}: {score}点\n"
+        s += "鳴き不可順子役:\n"
+        for yaku_name, score in yaku_data_s1.items():
+            s += f"- {yaku_name}: {score}点\n"
+        s += "特殊役:\n"
+        for yaku_name, score in yaku_data_special.items():
+            s += f"- {yaku_name}: {score}点\n"
+
+        game_state_text_box.append_html_text(s)
+        game_state_text_box.append_html_text("================\n")
+
+
+
+    accepted_yaku_button = pygame_gui.elements.UIButton(relative_rect=pygame.Rect((1370, 85), (100, 50)),
+                                                   text='採用役',
+                                                   manager=ui_manager,
+                                                   tool_tip_text="Some tool tip text.",
+                                                   command=print_accepted_yaku)
+
     button_tsumo = pygame_gui.elements.UIButton(relative_rect=pygame.Rect((470, 820), (120, 60)),
                                                    text='ツモ',
                                                    manager=ui_manager,
@@ -1219,9 +1300,7 @@ if __name__ == "__main__":
         time_delta = clock.tick(60)/1000.0
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                # build_quit_game_window()
                 running = False
-            # right click to deselect from inventory
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 3:
                 pass
                             
@@ -1326,6 +1405,8 @@ if __name__ == "__main__":
                     start_new_game(reset_points=False, opponent_name=selected_opponent)
                 if event.ui_element == reload_hiruchaaru_button:
                     start_new_game(reset_points=True, opponent_name=selected_opponent)
+                if event.ui_element == exit_game_button:
+                    running = False
 
             if event.type == pygame_gui.UI_TEXT_BOX_LINK_CLICKED:
                 pass
