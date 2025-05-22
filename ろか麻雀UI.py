@@ -11,7 +11,7 @@ import os
 from typing import List, Dict, Tuple, Optional
 
 import torch
-from ろかAI_v4 import DQNAgent
+from ろかAI_v5 import DQNAgent
 from ろか麻雀 import calculate_weighted_preference_score, nicely_print_tiles, 山を作成する, 点数計算, 聴牌ですか, 麻雀牌
 
 
@@ -27,9 +27,10 @@ class Env:
         "白ちゃん": 5, "發ちゃん": 6, "中ちゃん": 7
     }
     _MAX_DISCARD_GROUPS = 14
-    ACTION_PASS = _MAX_DISCARD_GROUPS + 0
+    ACTION_NOPON = _MAX_DISCARD_GROUPS + 0
     ACTION_PON = _MAX_DISCARD_GROUPS + 1
-    ACTION_CHI = _MAX_DISCARD_GROUPS + 2
+    ACTION_NOCHI = _MAX_DISCARD_GROUPS + 2
+    ACTION_CHI = _MAX_DISCARD_GROUPS + 3
     AGENT_HAND_SIZE = 13
 
     def __init__(self):
@@ -294,7 +295,7 @@ class Env:
         """
         Generates a list of valid action IDs.
         For agent's turn (discard): action IDs are local group IDs of discardable tiles.
-        For opponent's turn (call/pass): action IDs are special constants (14, 15, 16): (pass, pon, chii)
+        For opponent's turn (call/pass): action IDs are special constants (14, 15, 16, 17): (nopon, pon, nochii, chii)
         """
         self.action_lgid_to_canonical_map.clear() # Clear map from previous turn
 
@@ -342,7 +343,7 @@ class Env:
             return unique_valid_action_lgids
         
         else:
-            return [self.ACTION_PASS, self.ACTION_PON, self.ACTION_CHI] # 14, 15, 16
+            return [self.ACTION_NOPON, self.ACTION_PON, self.ACTION_NOCHI, self.ACTION_CHI] # 14, 15, 16, 17
 
 
     def map_action_lgid_to_canonical_id(self, action_lgid: int) -> int | None:
@@ -410,10 +411,10 @@ if __name__ == "__main__":
         print(f"Error loading icon: {e}")
 
     try:
-        dqn_agent = DQNAgent(106, 17, device="cuda")
+        dqn_agent = DQNAgent(106, 18, device="cuda")
     except Exception:
         print("Cuda Device not found, using cpu version.")
-        dqn_agent = DQNAgent(106, 17, device="cpu")
+        dqn_agent = DQNAgent(106, 18, device="cpu")
 
     dqn_agent.epsilon = 0
 
@@ -698,7 +699,8 @@ if __name__ == "__main__":
                 # can pon
                 valid_actions: list = env.get_valid_actions(last_tile_discarded_by_player)
                 valid_actions.remove(16)
-                assert 14 in valid_actions and 15 in valid_actions
+                valid_actions.remove(17)
+                assert valid_actions == [14, 15]
                 action, full_dict = dqn_agent.act(env._get_state_unified(last_tile_discarded_by_player), valid_actions)
                 if action == 15:
                     game_state_text_box.append_html_text(f"{env.opponent_name}: ポン！\n")
@@ -748,10 +750,11 @@ if __name__ == "__main__":
 
                 if can_chii:
                     valid_actions: list = env.get_valid_actions(last_tile_discarded_by_player)
+                    valid_actions.remove(14)
                     valid_actions.remove(15)
-                    assert 14 in valid_actions and 16 in valid_actions, "14 do nothing 15 pon 16 chii"
+                    assert valid_actions == [16, 17]
                     action, full_dict = dqn_agent.act(env._get_state_unified(last_tile_discarded_by_player), valid_actions)
-                    if action == 16:
+                    if action == 17:
                         game_state_text_box.append_html_text(f"{env.opponent_name}: チー！\n")
                         for t in env.opponent_hand:
                             if (t.何者, t.その上の数字) == (chii_tiles[0].何者, chii_tiles[0].その上の数字) and not t.副露:
@@ -767,7 +770,7 @@ if __name__ == "__main__":
                         last_tile_discarded_by_player = None
                         env.discard_pile_player.pop()
                         hiruchaaru_to_chii = True
-                    else:
+                    else: # action 16
                         pass
 
 

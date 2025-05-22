@@ -24,9 +24,10 @@ class MahjongEnvironment:
         "白ちゃん": 5, "發ちゃん": 6, "中ちゃん": 7
     }
     _MAX_DISCARD_GROUPS = 14
-    ACTION_PASS = _MAX_DISCARD_GROUPS + 0
+    ACTION_NOPON = _MAX_DISCARD_GROUPS + 0
     ACTION_PON = _MAX_DISCARD_GROUPS + 1
-    ACTION_CHI = _MAX_DISCARD_GROUPS + 2
+    ACTION_NOCHI = _MAX_DISCARD_GROUPS + 2
+    ACTION_CHI = _MAX_DISCARD_GROUPS + 3
     AGENT_HAND_SIZE = 13
 
     def __init__(self, is_test: bool):
@@ -79,10 +80,10 @@ class MahjongEnvironment:
         self.mz_score = 0
         self.tuiz_score = 0
         self.tatsu_score = 0
-        self.pon = 0
-        self.完成した役 = []
+        self.完成した役: list[str] = []
         self.hand_when_complete = []
-        self.agent_after_pon = False
+        self.agent_after_pon: bool = False
+        self.continue_to_check_chii: bool = False
 
         self.action_lgid_to_canonical_map.clear()
         return self._get_state_unified(last_tile=None)
@@ -278,7 +279,7 @@ class MahjongEnvironment:
         """
         Generates a list of valid action IDs.
         For agent's turn (discard): action IDs are local group IDs of discardable tiles.
-        For opponent's turn (call/pass): action IDs are special constants (14, 15, 16): (pass, pon, chii)
+        For opponent's turn (call/pass): action IDs are special constants (14, 15, 16, 17): (nopon, pon, nochii, chii)
         """
         self.action_lgid_to_canonical_map.clear() # Clear map from previous turn
 
@@ -326,7 +327,7 @@ class MahjongEnvironment:
             return unique_valid_action_lgids
         
         else:
-            return [self.ACTION_PASS, self.ACTION_PON, self.ACTION_CHI] # 14, 15, 16
+            return [self.ACTION_NOPON, self.ACTION_PON, self.ACTION_NOCHI, self.ACTION_CHI] # 14, 15, 16, 17
 
 
     def map_action_lgid_to_canonical_id(self, action_lgid: int) -> int | None:
@@ -340,16 +341,17 @@ class MahjongEnvironment:
 
     def _agent_extra_reward(self, hand_tiles: list[麻雀牌], naki_tile_pon: 麻雀牌 | None = None,
                             naki_tile_chii: 麻雀牌 | None = None) -> int:
+        
         reward_extra = 0
-
+        ht_counter = Counter((t.何者, t.その上の数字) for t in hand_tiles)
         # 聴牌の場合、大量の報酬を与える
         if self.is_tenpai:
             reward_extra += 30
             self.total_tennpai += 1
         
-        # mz_score = int(面子スコア(hand_tiles) * 6)
-        # self.mz_score += mz_score
-        # reward_extra += mz_score
+        mz_score = int(面子スコア(hand_tiles) * 6)
+        self.mz_score += mz_score
+        reward_extra += mz_score
 
         # tuiz_score = int(刻子スコア(hand_tiles) * 3)
         # self.tuiz_score += tuiz_score
@@ -359,23 +361,27 @@ class MahjongEnvironment:
         # self.tatsu_score += tatsu_score
         # reward_extra += tatsu_score
 
-        # tuiz_score = int(刻子スコア(hand_tiles, allowed_num=[1, 9, 0], score_table=[0, 1, 2, 3, 4]) * 4)
-        # self.tuiz_score += tuiz_score
-        # reward_extra += tuiz_score
-
-        # tatsu_score = int(順子スコア(hand_tiles, allowed_sequences=[[1, 2, 3], [7, 8, 9]], score_table=[0, 1, 2, 3, 4]) * 4)
-        # self.tatsu_score += tatsu_score
-        # reward_extra += tatsu_score
 
         # tuiz_score += int(対子スコア(hand_tiles) * 8)
         # self.tuiz_score += tuiz_score
         # reward_extra += tuiz_score
 
-        ht_counter = Counter((t.何者, t.その上の数字) for t in hand_tiles)
+        # Train: CYANTA
+        # tuiz_score = int(刻子スコア(hand_tiles, allowed_num=[1, 9, 0], score_table=[0, 1, 2, 3, 4]) * 8)
+        # self.tuiz_score += tuiz_score
+        # reward_extra += tuiz_score
 
-        # RZ: 4999, e=0.001, em=0.001 No score bonus
+        # tatsu_score = int(順子スコア(hand_tiles, allowed_sequences=[[1, 2, 3], [7, 8, 9]], score_table=[0, 1, 2, 3, 4]) * 8)
+        # self.tatsu_score += tatsu_score
+        # reward_extra += tatsu_score
 
-        # CW: 599, e=0.5, em=0.5
+        # for key, cnt in ht_counter.items():
+        #     if key[1] in [4, 5, 6]:
+        #         reward_extra -= 25 * cnt
+        #         self.penalty_A += 25 * cnt
+
+
+
         # for key, cnt in ht_counter.items():
         #     if key[0] == "索子": # "萬子", "筒子", "索子"
         #         reward_extra += 30 * cnt
@@ -400,6 +406,13 @@ class MahjongEnvironment:
         #     else:
         #         reward_extra -= 500
         #         self.penalty_A += 500
+        # for key, cnt in ht_counter.items():
+        #     if key[1] in [0]:
+        #         reward_extra += 30 * cnt
+        #         self.penalty_A -= 30 * cnt
+        #     else:
+        #         reward_extra -= 30 * cnt
+        #         self.penalty_A += 30 * cnt
 
         # RZ_3CSS: 5999, e=0.001, em=0.001, Partial Agari
         # for key, cnt in ht_counter.items():
@@ -441,15 +454,20 @@ class MahjongEnvironment:
         # 五門_counter = len(present_categories)
         # assert 1 <= 五門_counter <= 5
         # if 五門_counter == 1:
-        #     reward_extra -= 5
+        #     reward_extra -= 10
+        #     self.penalty_A += 10
         # elif 五門_counter == 2:
-        #     reward_extra -= 2
+        #     reward_extra -= 4
+        #     self.penalty_A += 4
         # elif 五門_counter == 3:
-        #     reward_extra += 2
+        #     reward_extra += 4
+        #     self.penalty_A -= 4
         # elif 五門_counter == 4:
-        #     reward_extra += 5
-        # elif 五門_counter == 5:
         #     reward_extra += 10
+        #     self.penalty_A -= 10
+        # elif 五門_counter == 5:
+        #     reward_extra += 20
+        #     self.penalty_A -= 20
         # else:
         #     raise Exception
 
@@ -497,7 +515,8 @@ class MahjongEnvironment:
         assert 0 <= action <= 13
         if not self.is_test_environment:
             # reward -= 2  # base penalty
-            reward -= int(self.turn * 0.5)
+            # reward -= int(self.turn * 0.5)
+            pass
         tile_type = self.map_action_lgid_to_canonical_id(int(action))
         # print(tile_type) # ('筒子', 5)
         target_tile = None
@@ -541,20 +560,6 @@ class MahjongEnvironment:
 
     def _step_sandbag(self, actor: "DQNAgent"):
         reward = 0
-        # The sandbag cannot do anything but randomly discard a tile,
-        # and the discarded tile is then added to the discard pile.
-        # during sandbag's turn, the agent can "ロン", "ポン" the tile.
-        # "ロン" is automatically checked like ツモ.
-        # "ロン": try add the tile to the hand and check if it is a ツモ,
-        # if so, it is a "ロン".
-        # "ポン": agent, if having the 2 same tiles as the discarded tile,
-        # can "ポン" the tile and add it to the hand, if so, mark the 3 tiles as 副露
-        # by setting 牌.副露 = True and remove the tile in pile. 
-        # After ポン, current_actor is set to the agent but
-        # the agent cannot draw a tile this turn.
-        # To decide whether to "ポン", use the action value dict, pon
-        # if 34 + tile_idx > 68 + tile_idx, otherwise do not pon.
-
         sandbag_tiles = self.sandbag_a_tiles
         
         # Draw tile
@@ -600,14 +605,13 @@ class MahjongEnvironment:
                                                 "completeyaku": self.完成した役,
                                                 "hand_when_complete": self.hand_when_complete}, -1
 
-        agent_did_nothing = False
         pass_pon_and_chii = False
 
         if self.is_tenpai:
             pass_pon_and_chii = True
 
         # Only if the agent has more than 2 tiles in hand, pon is possible
-        if not pass_pon_and_chii and len([t for t in self.手牌 if not t.副露]) > 1:
+        if not pass_pon_and_chii and len([t for t in self.手牌 if not t.副露]) > 1 and not self.continue_to_check_chii:
             # Check if agent can ポン (pong)
             # Count how many of the discarded tile type the agent has
             same_tile_count = 0
@@ -621,8 +625,9 @@ class MahjongEnvironment:
             # If agent has at least 2 of the same tile, they can pon
             if same_tile_count >= 2:
                 valid_actions: list = self.get_valid_actions(discarded_tile)
-                valid_actions.remove(16)
-                assert 14 in valid_actions and 15 in valid_actions
+                valid_actions.remove(self.ACTION_NOCHI)
+                valid_actions.remove(self.ACTION_CHI)
+                assert valid_actions == [14, 15]
                 action, full_dict = actor.act(self._get_state_unified(discarded_tile), valid_actions)
                 if action == 15:
                     # print(f"ポン！{discarded_tile.何者} {discarded_tile.その上の数字}")
@@ -653,10 +658,22 @@ class MahjongEnvironment:
                                                     "tuiz_score": self.tuiz_score,
                                                     "tatsu_score": self.tatsu_score,
                                                     "completeyaku": self.完成した役,
-                                                    "hand_when_complete": self.hand_when_complete}, 15
-                else: # action 14
-                    agent_did_nothing = True
+                                                    "hand_when_complete": self.hand_when_complete}, action
+                elif action == 14: # action 14
+                    self.continue_to_check_chii = True
+                    # print("Continue")
+                    return self._get_state_unified(discarded_tile), reward, done, {"score": self.score, "turn": self.turn,
+                                                    "penalty_A": self.penalty_A,
+                                                    "tenpai": self.total_tennpai,
+                                                    "mz_score": self.mz_score,
+                                                    "tuiz_score": self.tuiz_score,
+                                                    "tatsu_score": self.tatsu_score,
+                                                    "completeyaku": self.完成した役,
+                                                    "hand_when_complete": self.hand_when_complete}, action
+                else:
+                    raise Exception("Not happening.")
 
+        self.continue_to_check_chii = False
         # Check if agent can Chii
         # Agent can only Chii if they have two consecutive tiles that can form a sequence with the discarded tile
         # Custom rule: agent can only chii if the discarded tile is 中張牌 (2-8), and the only allowed sequence is (n-1, n, n+1)
@@ -689,10 +706,11 @@ class MahjongEnvironment:
 
                 if can_chii:
                     valid_actions: list = self.get_valid_actions(discarded_tile)
-                    valid_actions.remove(15)
-                    assert 14 in valid_actions and 16 in valid_actions
+                    valid_actions.remove(self.ACTION_NOPON)
+                    valid_actions.remove(self.ACTION_PON)
+                    assert valid_actions == [16, 17]
                     action, full_dict = actor.act(self._get_state_unified(discarded_tile), valid_actions)
-                    if action == 16:
+                    if action == 17:
                         # print(f"チー！{discarded_tile.何者} {discarded_tile.その上の数字}")
                         agent_did_nothing = False
                         # Mark the 2 tiles in hand that is the chii_tiles to be 副露
@@ -730,34 +748,38 @@ class MahjongEnvironment:
                                                         "tuiz_score": self.tuiz_score,
                                                         "tatsu_score": self.tatsu_score,
                                                         "completeyaku": self.完成した役,
-                                                        "hand_when_complete": self.hand_when_complete}, 16
-                    else: # action 14
-                        agent_did_nothing = True
-
-
-
-        # Move to next actor (cycle through 0-2) prev: 0-3
-        # 2025-04-25 NEW: only 2 players left
+                                                        "hand_when_complete": self.hand_when_complete}, action
+                    elif action == 16: # action 16
+                        # Move to next actor (cycle through 0-2) prev: 0-3
+                        # 2025-04-25 NEW: only 2 players left
+                        self.current_actor = (self.current_actor + 1) % 2
+                        if not self.is_test_environment:
+                            reward += self._agent_extra_reward(self.手牌)
+                        self.score += reward
+                        return self._get_state_unified(discarded_tile), reward, done, {"score": self.score, "turn": self.turn,
+                                                        "penalty_A": self.penalty_A,
+                                                        "tenpai": self.total_tennpai,
+                                                        "mz_score": self.mz_score,
+                                                        "tuiz_score": self.tuiz_score,
+                                                        "tatsu_score": self.tatsu_score,
+                                                        "completeyaku": self.完成した役,
+                                                        "hand_when_complete": self.hand_when_complete}, action
+                    else:
+                        raise Exception("Not happening.")
+                    
+        # The agent cannot pon nor chii
         self.current_actor = (self.current_actor + 1) % 2
-        self.turn += 1
-        final_action = -1
-        if agent_did_nothing or pass_pon_and_chii:
-            # print("The agent did not pon or chii.")
-            final_action = 14
-
         if not self.is_test_environment:
             reward += self._agent_extra_reward(self.手牌)
         self.score += reward
-
-        # Return state
         return self._get_state_unified(discarded_tile), reward, done, {"score": self.score, "turn": self.turn,
-                                            "penalty_A": self.penalty_A,
-                                            "tenpai": self.total_tennpai,
-                                            "mz_score": self.mz_score,
-                                            "tuiz_score": self.tuiz_score,
-                                            "tatsu_score": self.tatsu_score,
-                                            "completeyaku": self.完成した役,
-                                            "hand_when_complete": self.hand_when_complete}, final_action
+                                        "penalty_A": self.penalty_A,
+                                        "tenpai": self.total_tennpai,
+                                        "mz_score": self.mz_score,
+                                        "tuiz_score": self.tuiz_score,
+                                        "tatsu_score": self.tatsu_score,
+                                        "completeyaku": self.完成した役,
+                                        "hand_when_complete": self.hand_when_complete}, -1
 
 
     def step(self, actor: "DQNAgent", after_pon: bool = False):
@@ -871,7 +893,7 @@ class NewDQN(nn.Module):
 
 class DQNAgent:
     TARGET_UPDATE_EVERY = 2000
-    EPISODIC_MEMORY_REPLAY_FREQ = 500
+    EPISODIC_MEMORY_REPLAY_FREQ = 100
     SUCCESS_REWARD_THRESHOLD = 3000
 
     def __init__(self, state_size: int, action_size: int, device: str = "cpu",
@@ -945,9 +967,10 @@ class DQNAgent:
         mask = torch.zeros((B, self.action_size), dtype=torch.bool, device=state_batch.device)
         
         # Define indices for action constants
-        action_pass_idx = 14
+        action_nopon_idx = 14
         action_pon_idx = 15
-        action_chi_idx = 16
+        action_nochi_idx = 16
+        action_chi_idx = 17
         
         # Updated state slicing indices based on the new structure with relationship feature
         # hand_features_end = self.AGENT_HAND_SIZE * 7 # 13 * 7 = 91
@@ -980,10 +1003,12 @@ class DQNAgent:
                     mask[i, valid_local_ids_within_range] = True
             
             else:  # Opponent's turn: Call/Pass actions
-                if action_pass_idx < self.action_size:
-                    mask[i, action_pass_idx] = True
+                if action_nopon_idx < self.action_size:
+                    mask[i, action_nopon_idx] = True
                 if action_pon_idx < self.action_size:
                     mask[i, action_pon_idx] = True
+                if action_nochi_idx < self.action_size:
+                    mask[i, action_nochi_idx] = True
                 if action_chi_idx < self.action_size:
                     mask[i, action_chi_idx] = True
         
@@ -1091,7 +1116,7 @@ def train_agent(episodes: int = 2999, name: str = "agent",
                 save_after_this_ep: int = 900,
                 e = 1.0, em = 0.01, ed = 0.998) -> DQNAgent:
     env = MahjongEnvironment(False)
-    agent = DQNAgent(106, 17, device=device, epsilon=e, epsilon_min=em, epsilon_decay=ed)
+    agent = DQNAgent(106, 18, device=device, epsilon=e, epsilon_min=em, epsilon_decay=ed)
     assert save_every_this_ep >= 99, "Reasonable saving interval must be no less than 99."
     log_save_path = f"./log/train_{name}.csv"
 
@@ -1208,7 +1233,7 @@ def train_agent(episodes: int = 2999, name: str = "agent",
 
 def test_agent(episodes: int, model_path: str, device: str = "cpu", target_yaku: str = "None") -> tuple[float, float, int]:
     env = MahjongEnvironment(True)
-    agent = DQNAgent(106, 17, device=device)
+    agent = DQNAgent(106, 18, device=device)
     agent.epsilon = 0
     log_save_path = f"./log/test_{model_path.split('/')[-1].split('.')[0]}.csv"
     
@@ -1370,16 +1395,16 @@ def test_all_agents(episodes: int, device: str = "cpu") -> None:
 
 
 def train_and_test_pipeline():
-    agent_name = "RZ_"
-    for ab in "rty":
-        train_agent(5999, name=agent_name + ab, device="cuda", save_every_this_ep=200, save_after_this_ep=299,
+    agent_name = "ZERO_"
+    for ab in "qwe":
+        train_agent(2999, name=agent_name + ab, device="cuda", save_every_this_ep=200, save_after_this_ep=50,
                     e=0.001, em=0.001)
         test_all_agent_candidates(500, "cuda", target_yaku="None", performance_method=0)
 
 
 if __name__ == "__main__":
-    # train_and_test_pipeline()
+    train_and_test_pipeline()
     # test_all_agent_candidates(500, "cuda", delete_poor=True, performance_method=0)
-    test_all_agents(500, 'cuda')
+    # test_all_agents(500, 'cuda')
     # test_agent(episodes=500, model_path=f"./DQN_agents_candidates/LT_3000.pth", device="cuda")
 
