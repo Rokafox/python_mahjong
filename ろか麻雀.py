@@ -2079,14 +2079,6 @@ def 点数計算(tiles: list[麻雀牌], seat: int) -> tuple[int, list[str], boo
 #             score += 1000
 #             yaku.append("平和")
 
-#         if 一盃口(tiles):
-#             score += 3000
-#             yaku.append("一盃口")
-#             win = True
-#         if 二盃口(tiles):
-#             score += 6000
-#             yaku.append("二盃口")
-#             win = True
 #         if 三色同順(tiles):
 #             score += 6000
 #             yaku.append("三色同順")
