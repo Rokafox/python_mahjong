@@ -349,9 +349,9 @@ class MahjongEnvironment:
             reward_extra += 30
             self.total_tennpai += 1
         
-        mz_score = int(面子スコア(hand_tiles) * 6)
-        self.mz_score += mz_score
-        reward_extra += mz_score
+        # mz_score = int(面子スコア(hand_tiles) * 6)
+        # self.mz_score += mz_score
+        # reward_extra += mz_score
 
         # tuiz_score = int(刻子スコア(hand_tiles) * 3)
         # self.tuiz_score += tuiz_score
@@ -380,7 +380,20 @@ class MahjongEnvironment:
         #         reward_extra -= 25 * cnt
         #         self.penalty_A += 25 * cnt
 
+        # Train: Wind
+        # for key, cnt in ht_counter.items():
+        #     if key[0] in ["東風", "南風", "西風", "北風"]:
+        #         reward_extra += 30 * cnt
+        #         self.penalty_A -= 30 * cnt
 
+        # Train: Dragon
+        # for key, cnt in ht_counter.items():
+        #     if key[0] in ["白ちゃん", "發ちゃん", "中ちゃん"]:
+        #         reward_extra += 32 * cnt
+        #         self.penalty_A -= 32 * cnt
+        #     else:
+        #         reward_extra -= 10 * cnt
+        #         self.penalty_A += 10 * cnt
 
         # for key, cnt in ht_counter.items():
         #     if key[0] == "索子": # "萬子", "筒子", "索子"
@@ -1395,9 +1408,9 @@ def test_all_agents(episodes: int, device: str = "cpu") -> None:
 
 
 def train_and_test_pipeline():
-    agent_name = "ZERO_"
-    for ab in "qwe":
-        train_agent(2999, name=agent_name + ab, device="cuda", save_every_this_ep=200, save_after_this_ep=50,
+    agent_name = "TRUEZERO_"
+    for ab in "we":
+        train_agent(4999, name=agent_name + ab, device="cuda", save_every_this_ep=200, save_after_this_ep=50,
                     e=0.001, em=0.001)
         test_all_agent_candidates(500, "cuda", target_yaku="None", performance_method=0)
 
