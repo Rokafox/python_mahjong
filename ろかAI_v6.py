@@ -260,6 +260,43 @@ class MahjongEnvironment:
         if 0 <= self.current_actor < 4:
             actor_state[self.current_actor] = 1.0
 
+        # --- Turn Encoding ---
+        # Cap turn at 57
+        capped_turn = min(self.turn, 57)
+        # Normalize to [0,1] range
+        normalized_turn = capped_turn / 57.0
+        turn_state = np.array([normalized_turn], dtype=np.float32)
+        
+        # --- Tile Availability Encoding ---
+        tile_availability = []
+        
+        # Create a counter for tiles in discard pile
+        discard_counter = {}
+        for tile in self.discard_pile:
+            cano_id = self._get_canonical_id(tile)
+            discard_counter[cano_id] = discard_counter.get(cano_id, 0) + 1
+        
+        # Create a counter for tiles in hand
+        hand_counter = {}
+        for tile in self.手牌:
+            if tile is not None:
+                cano_id = self._get_canonical_id(tile)
+                hand_counter[cano_id] = hand_counter.get(cano_id, 0) + 1
+        
+        # Calculate availability for each hand tile
+        for i in range(self.AGENT_HAND_SIZE):
+            if i < len(actual_hand_tiles):
+                tile = actual_hand_tiles[i]
+                cano_id = self._get_canonical_id(tile)
+                total_count = hand_counter.get(cano_id, 0) + discard_counter.get(cano_id, 0)
+                available = max(0, 4 - total_count)  # Ensure non-negative
+                tile_availability.append(available)
+            else:
+                # Padding for empty slots
+                tile_availability.append(0)
+        
+        tile_availability_state = np.array(tile_availability, dtype=np.float32)
+
         # state size calculation:
         # (AGENT_HAND_SIZE) * (1 local ID + 1 relationship + 5 base props) -> 13 * 7 = 91 (for hand slots)
         # + 1 * (1 local ID + 1 relationship + 5 base props)                -> 1 * 7 = 7  (for last tile slot)
@@ -267,11 +304,19 @@ class MahjongEnvironment:
         # + 4                                                               -> 4          (for actor)
         # Total: 91 + 7 + 4 + 4 = 106
 
+        # state size calculation update:
+        # Previous total: 106
+        # + 1 (turn)
+        # + 13 (tile availability)
+        # New total: 120
+        
         return np.concatenate([
-            hand_tiles_state,  # (AGENT_HAND_SIZE) * 7 features
-            last_tile_state,   # 1 * 7 features
-            seat_state,        # 4 features
-            actor_state        # 4 features
+            hand_tiles_state,          # (AGENT_HAND_SIZE) * 7 features
+            last_tile_state,           # 1 * 7 features
+            seat_state,                # 4 features
+            actor_state,               # 4 features
+            turn_state,                # 1 feature
+            tile_availability_state    # AGENT_HAND_SIZE features
         ])
 
 
@@ -1409,7 +1454,7 @@ def test_all_agents(episodes: int, device: str = "cpu") -> None:
 
 def train_and_test_pipeline():
     agent_name = "TRUEZERO_"
-    for ab in "we":
+    for ab in "rt":
         train_agent(4999, name=agent_name + ab, device="cuda", save_every_this_ep=200, save_after_this_ep=50,
                     e=0.001, em=0.001)
         test_all_agent_candidates(500, "cuda", target_yaku="None", performance_method=0)

@@ -11,7 +11,7 @@ import os
 from typing import List, Dict, Tuple, Optional
 
 import torch
-from ろかAI_v5 import DQNAgent
+from ろかAI_v6 import DQNAgent
 from ろか麻雀 import calculate_weighted_preference_score, nicely_print_tiles, 山を作成する, 点数計算, 聴牌ですか, 麻雀牌
 
 
