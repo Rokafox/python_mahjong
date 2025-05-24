@@ -394,9 +394,9 @@ class MahjongEnvironment:
             reward_extra += 30
             self.total_tennpai += 1
         
-        # mz_score = int(面子スコア(hand_tiles) * 6)
-        # self.mz_score += mz_score
-        # reward_extra += mz_score
+        mz_score = int(面子スコア(hand_tiles, score_table=[0, 1, 2, 3, 4]) * 6)
+        self.mz_score += mz_score
+        reward_extra += mz_score
 
         # tuiz_score = int(刻子スコア(hand_tiles) * 3)
         # self.tuiz_score += tuiz_score
@@ -406,12 +406,10 @@ class MahjongEnvironment:
         # self.tatsu_score += tatsu_score
         # reward_extra += tatsu_score
 
-
         # tuiz_score += int(対子スコア(hand_tiles) * 8)
         # self.tuiz_score += tuiz_score
         # reward_extra += tuiz_score
 
-        # Train: CYANTA
         # tuiz_score = int(刻子スコア(hand_tiles, allowed_num=[1, 9, 0], score_table=[0, 1, 2, 3, 4]) * 8)
         # self.tuiz_score += tuiz_score
         # reward_extra += tuiz_score
@@ -420,86 +418,43 @@ class MahjongEnvironment:
         # self.tatsu_score += tatsu_score
         # reward_extra += tatsu_score
 
-        # for key, cnt in ht_counter.items():
-        #     if key[1] in [4, 5, 6]:
-        #         reward_extra -= 25 * cnt
-        #         self.penalty_A += 25 * cnt
-
-        # Train: Wind
-        # for key, cnt in ht_counter.items():
-        #     if key[0] in ["東風", "南風", "西風", "北風"]:
-        #         reward_extra += 30 * cnt
-        #         self.penalty_A -= 30 * cnt
-
-        # Train: Dragon
-        # for key, cnt in ht_counter.items():
-        #     if key[0] in ["白ちゃん", "發ちゃん", "中ちゃん"]:
-        #         reward_extra += 32 * cnt
-        #         self.penalty_A -= 32 * cnt
-        #     else:
-        #         reward_extra -= 10 * cnt
-        #         self.penalty_A += 10 * cnt
+        # ZERO: e=0.4, em=0.4
+        # ZEROVL: e=0.01, em=0.01
+        # 10K, BLACK, BAMBOO, OLDHEAD: e=0.001, em=0.001
+        # MIXED9: e=0.4, em=0.4
 
         # for key, cnt in ht_counter.items():
-        #     if key[0] == "索子": # "萬子", "筒子", "索子"
+        #     if key[0] == "萬子": # "萬子", "筒子", "索子"
         #         reward_extra += 30 * cnt
         #         self.penalty_A -= 30 * cnt
         #     else:
         #         reward_extra -= 30 * cnt
         #         self.penalty_A += 30 * cnt
         # if naki_tile_chii:
-        #     if naki_tile_chii.何者 == "索子":
+        #     if naki_tile_chii.何者 == "萬子":
         #         reward_extra += 500
         #         self.penalty_A -= 500
         #     else:
         #         reward_extra -= 500
         #         self.penalty_A += 500
         # if naki_tile_pon:
-        #     if naki_tile_pon.何者 == "索子":
+        #     if naki_tile_pon.何者 == "萬子":
         #         reward_extra += 500
         #         self.penalty_A -= 500
-        #     elif "字牌" in naki_tile_pon.固有状態:
-        #         reward_extra += 100
-        #         self.penalty_A -= 100
+        #     # elif naki_tile_pon.何者 == "發ちゃん":
+        #     #     reward_extra += 200
+        #     #     self.penalty_A -= 200
         #     else:
         #         reward_extra -= 500
         #         self.penalty_A += 500
-        # for key, cnt in ht_counter.items():
-        #     if key[1] in [0]:
-        #         reward_extra += 30 * cnt
-        #         self.penalty_A -= 30 * cnt
-        #     else:
-        #         reward_extra -= 30 * cnt
-        #         self.penalty_A += 30 * cnt
 
-        # RZ_3CSS: 5999, e=0.001, em=0.001, Partial Agari
         # for key, cnt in ht_counter.items():
-        #     if key[1] in [3, 4, 5, 6]:
+        #     if key[1] in [0, 1, 9]:
         #         reward_extra += 30 * cnt
         #         self.penalty_A -= 30 * cnt
-        #     # if key[1] in [0]:
-        #     #     reward_extra += 10 * cnt
-        #     #     self.penalty_A -= 10 * cnt
         #     else:
         #         reward_extra -= 30 * cnt
         #         self.penalty_A += 30 * cnt
-        # if naki_tile_chii:
-        #     if naki_tile_chii.その上の数字 in [4, 5]:
-        #         reward_extra += 500
-        #         self.penalty_A -= 500
-        #     else:
-        #         reward_extra -= 500
-        #         self.penalty_A += 500
-        # if naki_tile_pon:
-        #     if naki_tile_pon.その上の数字 in [3, 4, 5, 6]:
-        #         reward_extra += 500
-        #         self.penalty_A -= 500
-        #     # elif naki_tile_pon.その上の数字 in [0]:
-        #     #     reward_extra += 100
-        #     #     self.penalty_A -= 100
-        #     else:
-        #         reward_extra -= 500
-        #         self.penalty_A += 500
 
         # present_categories = set()
         # for tile in hand_tiles:
@@ -960,7 +915,7 @@ class DQNAgent:
         self.action_size = action_size
         self.device = torch.device(device)
 
-        self.memory = PrioritizedReplayBuffer(capacity=50_000)
+        self.memory = PrioritizedReplayBuffer(capacity=77_000)
         self.episodic_memory = EpisodicMemory(capacity=3333)
         self.current_episode_transitions = []
 
@@ -1030,15 +985,18 @@ class DQNAgent:
         action_nochi_idx = 16
         action_chi_idx = 17
         
-        # Updated state slicing indices based on the new structure with relationship feature
+        # Updated state slicing indices based on the new structure with turn and tile availability
         # hand_features_end = self.AGENT_HAND_SIZE * 7 # 13 * 7 = 91
         # last_tile_features_start = hand_features_end # 91
         # last_tile_features_end = last_tile_features_start + 7 # 98
         # seat_features_start = last_tile_features_end # 98
         # seat_features_end = seat_features_start + 4 # 102
         # actor_features_start = seat_features_end # 102
+        # actor_features_end = actor_features_start + 4 # 106
+        # turn_feature = actor_features_end # 106
+        # tile_availability_start = turn_feature + 1 # 107
         
-        # Updated actor features start (91 for hand + 7 for last_tile + 4 for seat = 102)
+        # Actor features are still at the same position (index 102)
         actor_features_start = 102
         
         for i in range(B):
@@ -1174,7 +1132,7 @@ def train_agent(episodes: int = 2999, name: str = "agent",
                 save_after_this_ep: int = 900,
                 e = 1.0, em = 0.01, ed = 0.998) -> DQNAgent:
     env = MahjongEnvironment(False)
-    agent = DQNAgent(106, 18, device=device, epsilon=e, epsilon_min=em, epsilon_decay=ed)
+    agent = DQNAgent(120, 18, device=device, epsilon=e, epsilon_min=em, epsilon_decay=ed)
     assert save_every_this_ep >= 99, "Reasonable saving interval must be no less than 99."
     log_save_path = f"./log/train_{name}.csv"
 
@@ -1291,7 +1249,7 @@ def train_agent(episodes: int = 2999, name: str = "agent",
 
 def test_agent(episodes: int, model_path: str, device: str = "cpu", target_yaku: str = "None") -> tuple[float, float, int]:
     env = MahjongEnvironment(True)
-    agent = DQNAgent(106, 18, device=device)
+    agent = DQNAgent(120, 18, device=device)
     agent.epsilon = 0
     log_save_path = f"./log/test_{model_path.split('/')[-1].split('.')[0]}.csv"
     
@@ -1453,16 +1411,16 @@ def test_all_agents(episodes: int, device: str = "cpu") -> None:
 
 
 def train_and_test_pipeline():
-    agent_name = "TRUEZERO_"
-    for ab in "rt":
-        train_agent(4999, name=agent_name + ab, device="cuda", save_every_this_ep=200, save_after_this_ep=50,
-                    e=0.001, em=0.001)
-        test_all_agent_candidates(500, "cuda", target_yaku="None", performance_method=0)
+    agent_name = "3COLORM_"
+    for ab in "q":
+        train_agent(9999, name=agent_name + ab, device="cuda", save_every_this_ep=500, save_after_this_ep=50,
+                    e=0.1, em=0.1)
+    test_all_agent_candidates(500, "cuda", target_yaku="None", performance_method=0)
 
 
 if __name__ == "__main__":
-    train_and_test_pipeline()
+    # train_and_test_pipeline()
     # test_all_agent_candidates(500, "cuda", delete_poor=True, performance_method=0)
-    # test_all_agents(500, 'cuda')
+    test_all_agents(500, 'cuda')
     # test_agent(episodes=500, model_path=f"./DQN_agents_candidates/LT_3000.pth", device="cuda")
 

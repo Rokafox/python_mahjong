@@ -275,6 +275,50 @@ class Env:
         else:
             actor_state[1] = 1.0
 
+        # --- Turn Encoding ---
+        # Cap turn at 57
+        capped_turn = min(self.turn, 57)
+        # Normalize to [0,1] range
+        normalized_turn = capped_turn / 57.0
+        turn_state = np.array([normalized_turn], dtype=np.float32)
+        
+        # --- Tile Availability Encoding ---
+        tile_availability = []
+        
+        # Create a counter for tiles in discard pile
+        discard_counter = {}
+        for tile in self.discard_pile_opponent + self.discard_pile_player:
+            cano_id = self._get_canonical_id(tile)
+            discard_counter[cano_id] = discard_counter.get(cano_id, 0) + 1
+        
+        # Create a counter for tiles in hand
+        hand_counter = {}
+        for tile in self.opponent_hand:
+            if tile is not None:
+                cano_id = self._get_canonical_id(tile)
+                hand_counter[cano_id] = hand_counter.get(cano_id, 0) + 1
+
+        # Create a counter for exposed tiles of player
+        roka_tiles_exposed_counter = {}
+        for tile in self.player_hand:
+            if tile is not None and tile.副露:
+                cano_id = self._get_canonical_id(tile)
+                hand_counter[cano_id] = hand_counter.get(cano_id, 0) + 1
+        
+        # Calculate availability for each hand tile
+        for i in range(self.AGENT_HAND_SIZE):
+            if i < len(actual_hand_tiles):
+                tile = actual_hand_tiles[i]
+                cano_id = self._get_canonical_id(tile)
+                total_count = hand_counter.get(cano_id, 0) + discard_counter.get(cano_id, 0)
+                available = max(0, 4 - total_count)  # Ensure non-negative
+                tile_availability.append(available)
+            else:
+                # Padding for empty slots
+                tile_availability.append(0)
+        
+        tile_availability_state = np.array(tile_availability, dtype=np.float32)
+
         # state size calculation:
         # (AGENT_HAND_SIZE) * (1 local ID + 1 relationship + 5 base props) -> 13 * 7 = 91 (for hand slots)
         # + 1 * (1 local ID + 1 relationship + 5 base props)                -> 1 * 7 = 7  (for last tile slot)
@@ -282,12 +326,21 @@ class Env:
         # + 4                                                               -> 4          (for actor)
         # Total: 91 + 7 + 4 + 4 = 106
 
+        # state size calculation update:
+        # Previous total: 106
+        # + 1 (turn)
+        # + 13 (tile availability)
+        # New total: 120
+        
         return np.concatenate([
-            hand_tiles_state,  # (AGENT_HAND_SIZE) * 7 features
-            last_tile_state,   # 1 * 7 features
-            seat_state,        # 4 features
-            actor_state        # 4 features
+            hand_tiles_state,          # (AGENT_HAND_SIZE) * 7 features
+            last_tile_state,           # 1 * 7 features
+            seat_state,                # 4 features
+            actor_state,               # 4 features
+            turn_state,                # 1 feature
+            tile_availability_state    # AGENT_HAND_SIZE features
         ])
+
 
 
 
@@ -411,10 +464,10 @@ if __name__ == "__main__":
         print(f"Error loading icon: {e}")
 
     try:
-        dqn_agent = DQNAgent(106, 18, device="cuda")
+        dqn_agent = DQNAgent(120, 18, device="cuda")
     except Exception:
         print("Cuda Device not found, using cpu version.")
-        dqn_agent = DQNAgent(106, 18, device="cpu")
+        dqn_agent = DQNAgent(120, 18, device="cpu")
 
     dqn_agent.epsilon = 0
 
@@ -1098,7 +1151,7 @@ if __name__ == "__main__":
             "混一色": 3000,"清一色": 6000, "混老頭": 6000, "清老頭": 32000,
             "字一色|大七星": 32000,
             "緑一色": 32000, "黒一色": 32000,
-            "五門斉": 3000,
+            "五門斉": 5000,
         }
         yaku_data_k = {
             "対々和": 3000, "三色小同刻": 6000, "三色同刻": 32000,

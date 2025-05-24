@@ -242,7 +242,7 @@ def 山を作成する() -> list[麻雀牌]:
 # ==========================
 # 補助関数
 # ==========================
-def 面子スコア(tiles: list[麻雀牌]) -> int:
+def 面子スコア(tiles: list[麻雀牌], score_table : list[int] = [0, 1, 2, 4, 8]) -> int:
     """
     13 枚の手牌から完成面子（順子・刻子）の最大数を求めて
     0面子→0, 1面子→1, 2面子→2, 3面子→4, 4面子→8を返す。雀頭は数えない。
@@ -287,7 +287,7 @@ def 面子スコア(tiles: list[麻雀牌]) -> int:
         return best
     
     melds = dfs(counter)                # 0〜4
-    return [0, 1, 2, 4, 8][melds]
+    return score_table[melds]
 
 
 def 刻子スコア(tiles: list[麻雀牌], allowed_num: list[int] | None = None,
@@ -1825,7 +1825,7 @@ def 点数計算(tiles: list[麻雀牌], seat: int) -> tuple[int, list[str], boo
             yaku.append("純全帯么九")
             win = True
         if 五門斉(tiles):
-            score += 3000
+            score += 5000
             yaku.append("五門斉")
             win = True
         if 対々和(tiles):
@@ -1984,7 +1984,7 @@ def 点数計算(tiles: list[麻雀牌], seat: int) -> tuple[int, list[str], boo
             score += 1000
             yaku.append("断么九")
         if 五門斉(tiles):
-            score += 3000
+            score += 5000
             yaku.append("五門斉")
         if 清一色(tiles):
             score += 6000
@@ -2007,6 +2007,12 @@ def 点数計算(tiles: list[麻雀牌], seat: int) -> tuple[int, list[str], boo
         if 大三元(tiles):
             score += 32000
             yaku.append("大三元")
+        if 小三風(tiles):
+            score += 6000
+            yaku.append("小三風")
+        if 四喜和(tiles):
+            score += 32000
+            yaku.append("四喜和")
         if 字一色(tiles):
             score += 32000
             yaku.append("大七星")
@@ -2056,97 +2062,5 @@ def 聴牌ですか(tiles: list[麻雀牌], seat: int) -> tuple[bool, list[麻�
     return bool(待ち牌), 待ち牌
 
 
-def 聴牌まで最小交換回数(tiles: list[麻雀牌], seat: int, max_swaps: int = 13) -> tuple[int, list[tuple[list[麻雀牌], list[麻雀牌]]]]:
-    """
-    Calculate minimum number of tile swaps needed to achieve tenpai.
-    Args:
-        tiles: Current 13-tile hand
-        seat: Player seat number
-        max_swaps: Maximum number of swaps to try (default 13)
-    Returns:
-        tuple of (minimum_swaps_needed, list_of_optimal_swap_solutions)
-        If no solution found within max_swaps, returns (max_swaps + 1, [])
-    """
-    if len([t for t in tiles if not t.副露]) != 13:
-        raise ValueError(f"手牌は13枚でなければならない")
-    
-    # Generate all possible tiles
-    全候補: list[tuple[str, int]] = []
-    for suit in ("萬子", "筒子", "索子"):
-        for num in range(1, 10):
-            全候補.append((suit, num))
-    全候補 += [(honor, 0) for honor in 
-                ("東風", "南風", "西風", "北風", "白ちゃん", "發ちゃん", "中ちゃん")]
-    
-    # Check if already tenpai
-    is_tenpai, _ = 聴牌ですか(tiles, seat)
-    if is_tenpai:
-        return 0, [([], [])]  # No swaps needed
-    
-    # Try increasing numbers of swaps
-    for num_swaps in range(1, max_swaps + 1):
-        solutions = []
-        
-        # Try all combinations of tiles to remove
-        non_melded_tiles = [t for t in tiles if not t.副露]
-        for tiles_to_remove in combinations(non_melded_tiles, num_swaps):
-            # Create remaining hand after removal
-            remaining_tiles = [t for t in tiles if t not in tiles_to_remove]
-            
-            # Try all combinations of replacement tiles
-            for replacement_combo in product(全候補, repeat=num_swaps):
-                # Create new hand with replacements
-                new_tiles = remaining_tiles.copy()
-                replacement_tiles = []
-                
-                for 何者, 数字 in replacement_combo:
-                    new_tile = 麻雀牌(何者, 数字, False)
-                    new_tiles.append(new_tile)
-                    replacement_tiles.append(new_tile)
-                
-                # Check if this hand is tenpai
-                try:
-                    is_tenpai, _ = 聴牌ですか(new_tiles, seat)
-                    if is_tenpai:
-                        solutions.append((list(tiles_to_remove), replacement_tiles))
-                except:
-                    # Skip invalid hands
-                    continue
-        # If we found solutions with this number of swaps, return them
-        if solutions:
-            return num_swaps, solutions
-    # No solution found within max_swaps
-    return max_swaps + 1, []
-
-
-# Helper function to display results nicely
-def 結果表示(tiles: list[麻雀牌], result: tuple[int, list[tuple[list[麻雀牌], list[麻雀牌]]]]):
-    """
-    Display the results in a readable format.
-    """
-    min_swaps, solutions = result
-    
-    if min_swaps > 13:  # No solution found
-        print("聴牌に到達できません（指定された最大交換回数内で）")
-        return
-    
-    if min_swaps == 0:
-        print("既に聴牌です！")
-        return
-    
-    print(f"最小交換回数: {min_swaps}枚")
-    print(f"解の数: {len(solutions)}個")
-    for i, (remove, add) in enumerate(solutions[:5]):  # Show max 5 solutions
-        print(f"\n解 {i+1}:")
-        print(f"  除去: {[f'{t.何者}{t.その上の数字 if t.その上の数字 > 0 else ""}' for t in remove]}")
-        print(f"  追加: {[f'{t.何者}{t.その上の数字 if t.その上の数字 > 0 else ""}' for t in add]}")
-    
-    if len(solutions) > 5:
-        print(f"\n... 他 {len(solutions) - 5} 個の解があります")
-
-
 if __name__ == "__main__":
-    hand = 山を作成する()[:13]
-    seat = 0  # East seat
-    result = 聴牌まで最小交換回数(hand, seat)
-    結果表示(hand, result)
+    pass
