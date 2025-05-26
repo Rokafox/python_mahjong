@@ -571,27 +571,30 @@ if __name__ == "__main__":
 
     env = Env()
     image_405: pygame.Surface = pygame.image.load("asset/405.png")
+    tmp_marked_uiimages: list = []
 
     def draw_ui_player_hand():
+        global tmp_marked_uiimages
         assert len(env.player_hand) <= 14
         env.player_hand.sort(key=lambda x: (x.sort_order, x.その上の数字))
         for i, t in enumerate(env.player_hand):
             image_path = t.get_asset()
-            try:
-                image_surface = pygame.image.load(image_path)
-                player_tile_slots[i].set_temp_marked = False
-                # We need to consider whether the tile is exposed, if so, add sliver outline
-                if not t.副露:
-                    player_tile_slots[i].set_image(image_surface)
-                else:
-                    new_image = add_outline_to_image(image_surface, (186, 85, 211), 2)
-                    player_tile_slots[i].set_image(new_image)
-            except pygame.error as e:
-                print(f"Error loading image {image_path}: {e}")
+            image_surface = pygame.image.load(image_path)
+            if player_tile_slots[i] in tmp_marked_uiimages:
+                tmp_marked_uiimages.remove(player_tile_slots[i])
+            # player_tile_slots[i].set_temp_marked = False
+            # We need to consider whether the tile is exposed, if so, add sliver outline
+            if not t.副露:
+                player_tile_slots[i].set_image(image_surface)
+            else:
+                new_image = add_outline_to_image(image_surface, (186, 85, 211), 2)
+                player_tile_slots[i].set_image(new_image)
+
         if len(env.player_hand) < 14:
             for i in range(len(env.player_hand), 14):
                 player_tile_slots[i].set_image(image_405)
-                player_tile_slots[i].set_temp_marked = True
+                tmp_marked_uiimages.append(player_tile_slots[i])
+                # player_tile_slots[i].set_temp_marked = True
 
 
     def draw_ui_player_discarded_tiles():
@@ -623,27 +626,28 @@ if __name__ == "__main__":
         env.opponent_hand.sort(key=lambda x: (x.sort_order, x.その上の数字))
         for i, t in enumerate(env.opponent_hand):
             image_path = t.get_asset()
-            try:
-                image_surface = pygame.image.load(image_path)
-                opponent_tile_slots[i].set_temp_marked = False
-                if env.game_complete:
-                    if not t.副露:
-                        opponent_tile_slots[i].set_image(image_surface)
-                    else:
-                        new_image = add_outline_to_image(image_surface, (186, 85, 211), 2)
-                        opponent_tile_slots[i].set_image(new_image)
+            image_surface = pygame.image.load(image_path)
+            if opponent_tile_slots[i] in tmp_marked_uiimages:
+                tmp_marked_uiimages.remove(opponent_tile_slots[i])
+            # opponent_tile_slots[i].set_temp_marked = False
+            if env.game_complete:
+                if not t.副露:
+                    opponent_tile_slots[i].set_image(image_surface)
                 else:
-                    if not t.副露:
-                        opponent_tile_slots[i].set_image(image_tile_hidden)
-                    else:
-                        new_image = add_outline_to_image(image_surface, (186, 85, 211), 2)
-                        opponent_tile_slots[i].set_image(new_image)
-            except pygame.error as e:
-                print(f"Error loading image {image_path}: {e}")
+                    new_image = add_outline_to_image(image_surface, (186, 85, 211), 2)
+                    opponent_tile_slots[i].set_image(new_image)
+            else:
+                if not t.副露:
+                    opponent_tile_slots[i].set_image(image_tile_hidden)
+                else:
+                    new_image = add_outline_to_image(image_surface, (186, 85, 211), 2)
+                    opponent_tile_slots[i].set_image(new_image)
+
         if len(env.opponent_hand) < 14:
             for i in range(len(env.opponent_hand), 14):
                 opponent_tile_slots[i].set_image(image_405)
-                opponent_tile_slots[i].set_temp_marked = True
+                tmp_marked_uiimages.append(opponent_tile_slots[i])
+                # opponent_tile_slots[i].set_temp_marked = True
 
 
 
@@ -1116,15 +1120,6 @@ if __name__ == "__main__":
         button_pass.hide()
 
 
-    # draw_button = pygame_gui.elements.UIButton(relative_rect=pygame.Rect((1100, 100), (150, 15)),
-    #                                     text='Draw Tile',
-    #                                     manager=ui_manager,
-    #                                     tool_tip_text = "Some tool tip text.")
-    # discard_button = pygame_gui.elements.UIButton(relative_rect=pygame.Rect((1100, 140), (150, 15)),
-    #                                     text='Discard Tile',
-    #                                     manager=ui_manager,
-    #                                     tool_tip_text = "Some tool tip text.")
-
     new_game_button = pygame_gui.elements.UIButton(relative_rect=pygame.Rect((1100, 85), (150, 50)),
                                                    text='Start New Game',
                                                    manager=ui_manager,
@@ -1438,9 +1433,8 @@ if __name__ == "__main__":
                     zero_key_held = False
 
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                # character selection and party member swap
                 for index, image_slot in enumerate(player_tile_slots):
-                    if image_slot.rect.collidepoint(event.pos) and env.current_actor == 0 and not image_slot.set_temp_marked and not env.game_complete:
+                    if image_slot.rect.collidepoint(event.pos) and env.current_actor == 0 and not image_slot in tmp_marked_uiimages and not env.game_complete:
                         if not env.player_hand[index].副露:
                             # discard the tile
                             tile = env.player_hand.pop(index)
