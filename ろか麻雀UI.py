@@ -11,7 +11,7 @@ import os
 from typing import List, Dict, Tuple, Optional
 
 import torch
-from ろかAI_v6 import DQNAgent
+from ろかAI_v7 import DQNAgent
 from ろか麻雀 import calculate_weighted_preference_score, nicely_print_tiles, 山を作成する, 点数計算, 聴牌ですか, 麻雀牌
 
 
@@ -21,11 +21,9 @@ class Env:
     Mahjong game env
     """
 
-    SUIT_MAPPING = {"萬子": 0, "筒子": 1, "索子": 2}
-    HONOR_ID_MAPPING = {
-        "東風": 1, "南風": 2, "西風": 3, "北風": 4,
-        "白ちゃん": 5, "發ちゃん": 6, "中ちゃん": 7
-    }
+    SH_MAPPING = {"萬子": 0, "筒子": 1, "索子": 2, 
+                  "東風": 3, "南風": 3, "西風": 3, "北風": 3, 
+                  "白ちゃん": 4, "發ちゃん": 4, "中ちゃん": 4}
     _MAX_DISCARD_GROUPS = 14
     ACTION_NOPON = _MAX_DISCARD_GROUPS + 0
     ACTION_PON = _MAX_DISCARD_GROUPS + 1
@@ -133,24 +131,17 @@ class Env:
     def _get_tile_base_properties(self, tile: 麻雀牌 | None) -> tuple:
         """
         Extracts base properties (excluding local group ID).
-        Returns: (suit_cat, number, is_exposed, is_honor, honor_id_val)
+        Returns: (tile_cat, is_exposed, is_mixed_nine, is_four, is_six)
         """
-        if tile is None:
-            return (-1, 0, 0, 0, 0) # suit_cat, number, exposed, is_honor, honor_id
-
-        suit_val, num_val = tile.何者, tile.その上の数字
-        is_honor_val, honor_id_val, suit_cat = 0, 0, -1
-
-        if suit_val in self.SUIT_MAPPING:
-            suit_cat = self.SUIT_MAPPING[suit_val]
-        else: # Honor tiles
-            suit_cat = 3 # Dedicated category for honors
-            is_honor_val = 1
-            honor_id_val = self.HONOR_ID_MAPPING.get(suit_val, 0)
-            num_val = 0
-
-        is_exposed_val = tile.get_exposed_status()
-        return (suit_cat, num_val, is_exposed_val, is_honor_val, honor_id_val)
+        if not tile:
+            return (-1, -1, -1, -1, -1)        
+        sh_val, num_val = tile.何者, tile.その上の数字
+        sh_cat = self.SH_MAPPING[sh_val]
+        is_exposed_val = tile.get_exposed_status() # 012
+        is_mixed_nine = int(num_val in [0, 1, 9])
+        is_four = int(num_val == 4)
+        is_six = int(num_val == 6)
+        return (sh_cat, is_exposed_val, is_mixed_nine, is_four, is_six)
 
 
     def _get_state_unified(self, last_tile: 麻雀牌 | None = None) -> np.ndarray:
