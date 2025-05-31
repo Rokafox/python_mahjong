@@ -386,9 +386,9 @@ class MahjongEnvironment:
             reward_extra += 30
             self.total_tennpai += 1
         
-        # mz_score = int(面子スコア(hand_tiles, score_table=[0, 1, 2, 3, 4]) * 6)
-        # self.mz_score += mz_score
-        # reward_extra += mz_score
+        mz_score = int(面子スコア(hand_tiles, score_table=[0, 1, 2, 3, 4]) * 6)
+        self.mz_score += mz_score
+        reward_extra += mz_score
 
         # tuiz_score = int(刻子スコア(hand_tiles) * 3)
         # self.tuiz_score += tuiz_score
@@ -402,13 +402,13 @@ class MahjongEnvironment:
         # self.tuiz_score += tuiz_score
         # reward_extra += tuiz_score
 
-        tuiz_score = int(刻子スコア(hand_tiles, allowed_num=[1, 9, 0], score_table=[0, 1, 2, 3, 4]) * 8)
-        self.tuiz_score += tuiz_score
-        reward_extra += tuiz_score
+        # tuiz_score = int(刻子スコア(hand_tiles, allowed_num=[1, 9, 0], score_table=[0, 1, 2, 3, 4]) * 8)
+        # self.tuiz_score += tuiz_score
+        # reward_extra += tuiz_score
 
-        tatsu_score = int(順子スコア(hand_tiles, allowed_sequences=[[1, 2, 3], [7, 8, 9]], score_table=[0, 1, 2, 3, 4]) * 8)
-        self.tatsu_score += tatsu_score
-        reward_extra += tatsu_score
+        # tatsu_score = int(順子スコア(hand_tiles, allowed_sequences=[[1, 2, 3], [7, 8, 9]], score_table=[0, 1, 2, 3, 4]) * 8)
+        # self.tatsu_score += tatsu_score
+        # reward_extra += tatsu_score
 
         # ZEROM: e=0.1, em=0.1 
         # 10K, BLACK, BAMBOO, OLDHEAD, MIXED9: e=0.1, em=0.1
@@ -445,6 +445,11 @@ class MahjongEnvironment:
         #     else:
         #         reward_extra -= 30 * cnt
         #         self.penalty_A += 30 * cnt
+
+        for tile in hand_tiles:
+            if "四風牌" in tile.固有状態:
+                reward_extra += 30
+                self.penalty_A -= 30
 
         # present_categories = set()
         # for tile in hand_tiles:
@@ -1401,16 +1406,16 @@ def test_all_agents(episodes: int, device: str = "cpu") -> None:
 
 
 def train_and_test_pipeline():
-    agent_name = "MIXED9_"
-    for ab in "qwe":
-        train_agent(1199, name=agent_name + ab, device="cuda", save_every_this_ep=500, save_after_this_ep=50,
+    agent_name = "WIND_"
+    for ab in "rtyuio":
+        train_agent(1199, name=agent_name + ab, device="cuda", save_every_this_ep=200, save_after_this_ep=50,
                     e=0.1, em=0.1)
     test_all_agent_candidates(500, "cuda", target_yaku="None", performance_method=0)
 
 
 if __name__ == "__main__":
-    # train_and_test_pipeline()
+    train_and_test_pipeline()
     # test_all_agent_candidates(500, "cuda", delete_poor=False, performance_method=0)
-    test_all_agents(500, 'cuda')
+    # test_all_agents(500, 'cuda')
     # test_agent(episodes=500, model_path=f"./DQN_agents_candidates/LT_3000.pth", device="cuda")
 
